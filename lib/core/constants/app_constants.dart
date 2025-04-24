@@ -157,17 +157,6 @@ class AppStrings {
   static const String errorGeneric = '出现错误，请重试';
 }
 
-/// 路由常量
-class AppRoutes {
-  AppRoutes._(); // 私有构造函数，防止实例化
-
-  static const String splash = '/';
-  static const String home = '/home';
-  static const String editor = '/editor';
-  static const String settings = '/settings';
-  static const String about = '/about';
-}
-
 /// 资源路径常量
 class AppAssets {
   AppAssets._(); // 私有构造函数，防止实例化

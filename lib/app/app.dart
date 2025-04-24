@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'themes/app_theme.dart';
+import 'routes/app_routes.dart';
+import 'routes/app_router.dart';
 
 class SnipwiseApp extends StatelessWidget {
   const SnipwiseApp({super.key});
@@ -11,14 +13,8 @@ class SnipwiseApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      // TODO: 添加路由配置
-      // routes: AppRouter.routes,
-      // initialRoute: Routes.home,
-      home: const Scaffold(
-        body: Center(
-          child: Text('Snipwise - 开发中'),
-        ),
-      ),
+      onGenerateRoute: AppRouter.generateRoute,
+      initialRoute: AppRoutes.capture,
       debugShowCheckedModeBanner: false,
     );
   }

@@ -6,7 +6,7 @@
 
 1. [项目状态](#项目状态)
 2. [组件状态管理](#组件状态管理)
-3. [下一步开发计划](#下一步开发计划)
+3. [导航结构](#导航结构)
 4. [开发前准备工作](#开发前准备工作)
 5. [代码规范](#代码规范)
 
@@ -37,16 +37,25 @@
    - HiResCapureProvider
    - MagnifierProvider
 
+5. **核心服务实现**
+   - FileService - 文件处理服务
+   - ScreenshotService - 截图服务
+   - ExportService - 导出服务
+
+6. **统一常量系统**
+   - AppColors - 颜色常量
+   - AppDimensions - 尺寸常量
+   - AppStrings - 字符串常量
+   - AppAssets - 资源路径常量
+
+7. **路由系统**
+   - 简化的两页面导航结构
+
 ### 正在进行
 
-1. **基础设施完善**
-   - 路由管理系统
-   - 核心服务实现
-   - 常量定义文件
-
-2. **用户界面设计**
-   - 规划主编辑界面
-   - 工具栏组件设计
+1. **用户界面实现**
+   - 截图选择页面
+   - 图片编辑页面
 
 ## 组件状态管理
 
@@ -96,130 +105,68 @@ class HiResCapureProvider extends ChangeNotifier {
 3. 调用notifyListeners()通知UI更新
 4. 消费Provider的UI组件重建
 
-## 下一步开发计划
+## 导航结构
 
-项目发展顺序按照用户体验重要性和基础设施需求依次进行：
+Snipwise 使用简化的两页面导航结构，符合截图工具的用户体验需求：
 
-### 基础设施完善
+### 1. 截图选择页面 (`/capture`)
 
-1. **路由管理系统**
-   - 实现应用路由配置
-   - 支持页面间导航
-   - 处理深层链接
+- **功能**: 打开软件时显示的主页面，提供各种截图方式选择
+- **实现**: `CapturePage` 组件
+- **关键元素**: 
+  - 主工具栏 - 提供新建、高清截图、视频录制等功能
+  - 提示区域 - 显示快捷键提示
+  - 截图操作按钮 - 直接触发截图功能
 
-2. **核心服务层**
-   - 文件服务 - 负责文件读写操作
-   - 截图服务 - 封装截图功能
-   - 导出服务 - 处理导出功能
+### 2. 图片编辑页面 (`/editor`)
 
-3. **常量管理**
-   - 颜色常量
-   - 尺寸常量
-   - 字符串常量
+- **功能**: 截图完成后的编辑界面，提供各种标注和编辑工具
+- **实现**: `EditorPage` 组件
+- **关键元素**:
+  - 主工具栏 - 提供新建、高清截图等功能
+  - 编辑工具栏 - 提供标注、绘图、测量等功能
+  - 图片编辑区 - 显示图片并支持缩放、拖动
+  - 工具操作区 - 根据选择的工具显示相应操作选项
 
-### 编辑器主界面开发
+### 页面间导航
 
-1. **主布局结构**
-   - 创建主页面架构
-   - 实现响应式布局
-   - 准备工具栏和画布区域
+1. **从截图页面到编辑页面**: 
+   ```dart
+   Navigator.pushNamed(
+     context, 
+     AppRoutes.editor,
+     arguments: {
+       'imageData': capturedImageData,
+     },
+   );
+   ```
 
-2. **工具栏组件**
-   - 实现工具选择UI
-   - 与ToolsProvider集成
-   - 工具状态反馈
-
-3. **画布实现**
-   - 基础图像显示
-   - 缩放和平移功能
-   - 图层管理基础结构
-
-### 功能模块开发
-
-1. **截图功能**
-   - 基础截图工具
-   - 窗口捕获
-   - 区域选择
-
-2. **标注工具**
-   - 基础图形标注
-   - 文本标注
-   - 标注样式设置
-
-3. **高级功能**
-   - 放大镜功能
-   - 高清截图功能
-   - 灰度遮罩功能
+2. **从编辑页面返回截图页面**:
+   ```dart
+   Navigator.pop(context);
+   ```
 
 ## 开发前准备工作
 
-在开发具体UI页面前，需要完成以下基础设施工作：
+在进一步开发界面前，需要完成以下工作：
 
-### 1. 路由管理系统
+### 1. 依赖安装
 
-```dart
-// app/routes/routes.dart
-class Routes {
-  static const String home = '/';
-  static const String editor = '/editor';
-  static const String settings = '/settings';
-  static const String about = '/about';
-}
+确保项目中添加以下依赖：
 
-// app/routes/app_router.dart
-class AppRouter {
-  static Map<String, WidgetBuilder> get routes => {
-    Routes.home: (context) => const HomeScreen(),
-    Routes.editor: (context) => const EditorScreen(),
-    Routes.settings: (context) => const SettingsScreen(),
-    Routes.about: (context) => const AboutScreen(),
-  };
-}
+```yaml
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.0.0
+  equatable: ^2.0.0
+  path_provider: ^2.0.0
+  file_picker: ^5.0.0
+  image: ^4.0.0
+  screenshot: ^2.0.0
 ```
 
-### 2. 核心服务实现
-
-```dart
-// core/services/file_service.dart
-class FileService {
-  Future<File?> pickImage() async {
-    // 实现文件选择逻辑
-  }
-  
-  Future<bool> saveFile(Uint8List data, String fileName) async {
-    // 实现文件保存逻辑
-  }
-}
-
-// core/services/screenshot_service.dart
-class ScreenshotService {
-  Future<ui.Image?> captureScreen(Rect? area) async {
-    // 实现屏幕截图逻辑
-  }
-}
-```
-
-### 3. 常量定义
-
-```dart
-// core/constants/app_colors.dart
-class AppColors {
-  static const Color primary = Color(0xFF2196F3);
-  static const Color secondary = Color(0xFF4CAF50);
-  static const Color background = Color(0xFFF5F5F5);
-  // 更多颜色...
-}
-
-// core/constants/app_dimensions.dart
-class AppDimensions {
-  static const double toolbarWidth = 60.0;
-  static const double propertyPanelWidth = 280.0;
-  static const double spacing = 16.0;
-  // 更多尺寸...
-}
-```
-
-### 4. 平台特定配置
+### 2. 平台特定配置
 
 #### macOS 权限配置
 
@@ -237,10 +184,6 @@ class AppDimensions {
 #### 其他平台
 
 为其他平台配置相应权限，如Android的文件访问权限、Windows的文件操作权限等。
-
-### 5. 国际化框架
-
-设置基础国际化结构，为后续添加多语言支持做准备。
 
 ## 代码规范
 

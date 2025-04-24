@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
@@ -78,7 +77,7 @@ class FileService {
   }
 
   /// 获取临时目录
-  Future<Directory> getTemporaryDirectory() async {
+  Future<Directory> getTempDirectory() async {
     return await getTemporaryDirectory();
   }
 
