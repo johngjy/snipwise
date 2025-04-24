@@ -1,16 +1,17 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'dart:io';
+import 'dart:developer' as developer;
+import 'package:flutter/foundation.dart'; // For Uint8List
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart' show WindowManager;
-import 'package:screen_capturer/screen_capturer.dart' as capturer;
 import 'package:logger/logger.dart';
+import 'package:screen_capturer/screen_capturer.dart' as capturer;
 import '../data/models/capture_mode.dart';
 import '../data/models/capture_result.dart';
-import '../presentation/widgets/rectangle_selection.dart';
 import '../presentation/widgets/freeform_selection.dart';
 import '../presentation/widgets/screenshot_preview.dart';
 import 'dart:math' as math;
@@ -24,6 +25,9 @@ class CaptureService {
 
   /// 全局导航键
   final navigatorKey = GlobalKey<NavigatorState>();
+
+  /// 平台通道
+  static const platform = MethodChannel('com.snipwise/screenshot');
 
   /// 私有构造函数
   CaptureService._internal() {
@@ -57,18 +61,42 @@ class CaptureService {
         await Future.delayed(delay);
       }
 
-      // 在截图前最小化窗口
-      await _windowManager.minimize();
+      CaptureResult? result;
 
-      // 等待一小段时间让窗口完全最小化
-      await Future.delayed(const Duration(milliseconds: 500));
+      // 优先使用 screen_capturer 进行系统级截图 (适用于矩形区域、窗口和全屏)
+      if (mode == CaptureMode.rectangle ||
+          mode == CaptureMode.window ||
+          mode == CaptureMode.fullscreen) {
+        _logger.d('使用系统级截图模式: $mode');
+        result = await _captureUsingScreenCapturer(mode);
 
+        // 如果系统级截图失败，回退到旧方法
+        if (result == null) {
+          _logger.w('系统级截图失败，回退到应用级实现');
+          result = await _fallbackCapture(mode);
+        }
+      } else {
+        // 对于其他模式，使用现有实现
+        result = await _fallbackCapture(mode);
+      }
+
+      return result;
+    } catch (e) {
+      _logger.e('Error capturing screenshot', error: e);
+      return null;
+    }
+  }
+
+  /// 回退到旧的截图实现
+  Future<CaptureResult?> _fallbackCapture(CaptureMode mode) async {
+    try {
       CaptureResult? result;
       switch (mode) {
         case CaptureMode.rectangle:
-          result = await _captureRectangle();
+          result = await _captureRectangleInteractive(); // 调用旧的交互式方法
           break;
         case CaptureMode.freeform:
+          // 自由形状使用修改后的逻辑
           result = await _captureFreeform();
           break;
         case CaptureMode.window:
@@ -78,411 +106,282 @@ class CaptureService {
           result = await _captureFullscreen();
           break;
         case CaptureMode.fixedSize:
-          if (fixedSize != null) {
-            result = await _captureFixedSize(fixedSize);
-          }
+          _logger.w(
+              'Fixed size capture not yet implemented with native interaction.');
+          result = null; // 暂不支持
           break;
         case CaptureMode.scrolling:
           result = await _captureScrolling();
           break;
       }
-
-      // 恢复窗口
-      await _windowManager.restore();
-
       return result;
     } catch (e) {
-      _logger.e('Error capturing screenshot', error: e);
-      // 确保窗口被恢复
-      await _windowManager.restore();
+      _logger.e('Error in fallback capture', error: e);
       return null;
     }
   }
 
-  /// 矩形区域截图
-  Future<CaptureResult?> _captureRectangle() async {
+  /// 新的交互式矩形区域截图 (使用平台通道)
+  Future<CaptureResult?> _captureRectangleInteractive() async {
+    _logger.d('Starting interactive rectangle capture via platform channel...');
     try {
-      // 获取临时文件路径
-      final tempFilePath = await _getTemporaryFilePath();
+      // 1. 调用原生代码启动交互式选择
+      final dynamic selectionResult =
+          await platform.invokeMethod('startInteractiveCapture');
 
-      // 获取全屏截图作为背景
-      final screenCapture = await capturer.ScreenCapturer.instance.capture(
-        mode: capturer.CaptureMode.screen,
-        copyToClipboard: false,
-        silent: true,
-        imagePath: tempFilePath,
-      );
-
-      if (screenCapture == null || screenCapture.imageBytes == null) {
-        _logger.e('Failed to capture screen: no image data');
+      if (selectionResult == null) {
+        _logger.d('Interactive capture cancelled by user.');
         return null;
       }
 
-      final completer = Completer<CaptureResult?>();
+      // 2. 解析返回的区域信息
+      if (selectionResult is Map) {
+        final rectMap = Map<String, dynamic>.from(selectionResult);
+        final double x = rectMap['x'] as double? ?? 0.0;
+        final double y = rectMap['y'] as double? ?? 0.0;
+        final double width = rectMap['width'] as double? ?? 0.0;
+        final double height = rectMap['height'] as double? ?? 0.0;
 
-      // 创建一个新的 MaterialApp 来显示选择界面
-      if (navigatorKey.currentContext != null) {
-        _logger.d('准备显示矩形选择界面，图片字节大小: ${screenCapture.imageBytes!.length}');
-
-        try {
-          showDialog<void>(
-            context: navigatorKey.currentContext!,
-            barrierDismissible: false,
-            barrierColor: Colors.transparent,
-            useSafeArea: false, // 确保全屏显示
-            builder: (context) => Material(
-              type: MaterialType.transparency,
-              child: MediaQuery(
-                data: MediaQuery.of(context).copyWith(padding: EdgeInsets.zero),
-                child: RectangleSelection(
-                  backgroundImage: screenCapture.imageBytes!,
-                  onSelected: (rect) async {
-                    Navigator.of(context).pop();
-                    _logger.d('用户选择了区域: $rect');
-                    final result = await _completeRectangleCapture(
-                      screenCapture,
-                      rect,
-                    );
-                    completer.complete(result);
-                  },
-                  onCancel: () {
-                    _logger.d('用户取消了选择');
-                    Navigator.of(context).pop();
-                    completer.complete(null);
-                  },
-                ),
-              ),
-            ),
-          );
-        } catch (e) {
-          _logger.e('显示选择界面失败: $e', error: e);
-          completer.complete(null);
-        }
-      } else {
-        _logger.e('No valid context found for showing selection dialog');
-        completer.complete(null);
-      }
-
-      return completer.future;
-    } catch (e) {
-      _logger.e('Error capturing rectangle', error: e);
-      return null;
-    }
-  }
-
-  /// 完成矩形区域截图
-  Future<CaptureResult?> _completeRectangleCapture(
-    dynamic screenCapture,
-    Rect selectedRect,
-  ) async {
-    try {
-      // 验证输入参数
-      if (screenCapture == null || screenCapture.imageBytes == null) {
-        _logger.e('Screen capture or image bytes is null');
-        return null;
-      }
-
-      // 确保选择区域有有效的维度
-      if (selectedRect.width <= 0 || selectedRect.height <= 0) {
-        _logger.e(
-            'Invalid rectangle dimensions: ${selectedRect.width}x${selectedRect.height}');
-
-        // 给用户提供一个最小的有效截图，而不是返回null
-        try {
-          final originalImage =
-              await decodeImageFromList(screenCapture.imageBytes!);
-          return await _createMinimalCaptureResult(originalImage);
-        } catch (e) {
-          _logger.e('Failed to create minimal capture: $e');
+        // 确保尺寸有效
+        if (width <= 0 || height <= 0) {
+          _logger.e(
+              'Received invalid rect dimensions from native: w=$width, h=$height');
           return null;
         }
-      }
 
-      _logger.d('Processing selection: $selectedRect');
+        final selectedRegion =
+            CaptureRegion(x: x, y: y, width: width, height: height);
+        _logger.d('Received rectangle from native: $selectedRegion');
 
-      // 先解码原始图像
-      ui.Image? originalImage;
-      try {
-        originalImage = await decodeImageFromList(screenCapture.imageBytes!);
-      } catch (e) {
-        _logger.e('Failed to decode image: $e');
-        return null;
-      }
+        // 3. 调用原生代码捕获指定区域
+        final Uint8List? imageBytes =
+            await platform.invokeMethod<Uint8List>('captureScreenRect', {
+          'x': selectedRegion.x,
+          'y': selectedRegion.y,
+          'width': selectedRegion.width,
+          'height': selectedRegion.height,
+        });
 
-      if (originalImage == null) {
-        _logger.e('Failed to decode original image: result is null');
-        return null;
-      }
-
-      // 记录原始图像尺寸
-      final originalWidth = originalImage.width;
-      final originalHeight = originalImage.height;
-      _logger
-          .d('Original image dimensions: ${originalWidth}x${originalHeight}');
-
-      // 安全检查：确保原始图像有效
-      if (originalWidth <= 0 || originalHeight <= 0) {
-        _logger.e(
-            'Invalid original image dimensions: ${originalWidth}x${originalHeight}');
-        return null;
-      }
-
-      // 计算源矩形的安全值 - 确保在图像内部
-      final double safeLeft = selectedRect.left.clamp(0.0, originalWidth - 1.0);
-      final double safeTop = selectedRect.top.clamp(0.0, originalHeight - 1.0);
-
-      // 明确确保宽高至少为1，且不超出图像范围
-      final double safeWidth =
-          math.max(1.0, math.min(selectedRect.width, originalWidth - safeLeft));
-      final double safeHeight = math.max(
-          1.0, math.min(selectedRect.height, originalHeight - safeTop));
-
-      // 构建安全的源矩形
-      final Rect srcRect =
-          Rect.fromLTWH(safeLeft, safeTop, safeWidth, safeHeight);
-      _logger.d('Using adjusted source rect: $srcRect');
-
-      // 额外安全检查：如果源矩形仍然无效，则使用最小图像
-      if (srcRect.width < 1 || srcRect.height < 1) {
-        _logger.e('Adjusted source rect still invalid: $srcRect');
-        return await _createMinimalCaptureResult(originalImage);
-      }
-
-      try {
-        // 绘制选中区域
-        final recorder = ui.PictureRecorder();
-        final canvas = Canvas(recorder);
-        final dstRect = Rect.fromLTWH(0, 0, srcRect.width, srcRect.height);
-
-        canvas.drawImageRect(
-          originalImage,
-          srcRect,
-          dstRect,
-          Paint(),
-        );
-
-        // 完成绘制并获取图像
-        final picture = recorder.endRecording();
-
-        // 确保宽高是整数且至少为1像素
-        final int width = math.max(1, srcRect.width.toInt());
-        final int height = math.max(1, srcRect.height.toInt());
-
-        _logger.d('Creating image with dimensions: $width x $height');
-
-        ui.Image? image;
-        try {
-          image = await picture.toImage(width, height);
-        } catch (e) {
-          _logger.e('Error in toImage: $e', error: e);
-          // 如果转换失败，尝试创建最小结果
-          return await _createMinimalCaptureResult(originalImage);
+        if (imageBytes == null || imageBytes.isEmpty) {
+          _logger.e(
+              'Failed to capture screen rect from native: imageBytes is null or empty.');
+          return null;
         }
 
-        if (image == null) {
-          _logger.e('Failed to create image from picture: result is null');
-          return await _createMinimalCaptureResult(originalImage);
-        }
+        _logger.d('Received ${imageBytes.length} bytes for captured rect.');
 
-        // 获取图像数据
-        final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-        if (byteData == null) {
-          _logger.e('Failed to get byte data from image');
-          return await _createMinimalCaptureResult(originalImage);
-        }
-
-        // 获取临时文件路径用于保存结果
+        // 4. 保存到临时文件并创建 CaptureResult
         final tempFilePath = await _getTemporaryFilePath();
-
-        // 保存图像到文件
         final file = File(tempFilePath);
-        await file.writeAsBytes(byteData.buffer.asUint8List());
+        await file.writeAsBytes(imageBytes);
 
-        _logger.d('Successfully created capture result');
+        _logger.d('Successfully captured and saved rectangle to $tempFilePath');
 
-        // 使用安全的维度创建CaptureRegion
         return CaptureResult(
-          imageBytes: byteData.buffer.asUint8List(),
+          imageBytes: imageBytes,
           imagePath: tempFilePath,
-          region: CaptureRegion(
-            x: srcRect.left,
-            y: srcRect.top,
-            width: srcRect.width,
-            height: srcRect.height,
-          ),
+          region: selectedRegion,
         );
-      } catch (e) {
-        _logger.e('Error in processing capture: $e', error: e);
-        // 如果处理过程中出错，仍然尝试返回最小图像
-        return await _createMinimalCaptureResult(originalImage);
+      } else {
+        _logger.e(
+            'Received unexpected result type from startInteractiveCapture: ${selectionResult.runtimeType}');
+        return null;
       }
+    } on PlatformException catch (e) {
+      _logger.e(
+          'Platform channel error during interactive capture: ${e.code} - ${e.message}',
+          error: e.details);
+      return null;
     } catch (e) {
-      _logger.e('Error completing rectangle capture: $e', error: e);
+      _logger.e('Error during interactive rectangle capture', error: e);
       return null;
     }
   }
 
-  /// 创建最小的1x1像素捕获结果（作为失败时的备选方案）
-  Future<CaptureResult?> _createMinimalCaptureResult(
-      ui.Image originalImage) async {
+  /// 全屏截图 (使用平台通道)
+  Future<CaptureResult?> _captureFullscreen() async {
+    _logger.d('Capturing fullscreen via platform channel...');
     try {
-      _logger.d('Creating minimal capture result as fallback');
+      // 调用原生方法捕获全屏 (传递 null 或特定指示符)
+      final Uint8List? imageBytes =
+          await platform.invokeMethod<Uint8List>('captureScreenRect', null);
 
-      // 创建一个小图像（使用16x16而不是1x1，可能更适合显示）
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-
-      // 尝试从原始图像中截取有意义的部分
-      final srcRect = Rect.fromLTWH(
-          0,
-          0,
-          math.min(16, originalImage.width.toDouble()),
-          math.min(16, originalImage.height.toDouble()));
-      const dstRect = Rect.fromLTWH(0, 0, 16, 16);
-
-      canvas.drawImageRect(
-        originalImage,
-        srcRect,
-        dstRect,
-        Paint(),
-      );
-
-      final picture = recorder.endRecording();
-      final image = await picture.toImage(16, 16);
-
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) {
-        _logger.e('Failed to get fallback image data');
+      if (imageBytes == null || imageBytes.isEmpty) {
+        _logger.e(
+            'Failed to capture fullscreen from native: imageBytes is null or empty.');
         return null;
       }
 
-      // 获取临时文件路径
-      final tempFilePath = await _getTemporaryFilePath();
+      _logger.d('Received ${imageBytes.length} bytes for fullscreen capture.');
 
-      // 保存到文件
+      final tempFilePath = await _getTemporaryFilePath();
       final file = File(tempFilePath);
-      await file.writeAsBytes(byteData.buffer.asUint8List());
+      await file.writeAsBytes(imageBytes);
+
+      // 获取屏幕尺寸信息 (如果原生方法不返回，则需要额外调用)
+      final Rect screenBounds = await _getScreenBounds();
 
       return CaptureResult(
-        imageBytes: byteData.buffer.asUint8List(),
+        imageBytes: imageBytes,
         imagePath: tempFilePath,
-        region: const CaptureRegion(
-          x: 0,
-          y: 0,
-          width: 16,
-          height: 16,
+        region: CaptureRegion(
+          x: screenBounds.left,
+          y: screenBounds.top,
+          width: screenBounds.width,
+          height: screenBounds.height,
         ),
       );
+    } on PlatformException catch (e) {
+      _logger.e(
+          'Platform channel error during fullscreen capture: ${e.code} - ${e.message}',
+          error: e.details);
+      return null;
     } catch (e) {
-      _logger.e('Error creating minimal capture result: $e', error: e);
+      _logger.e('Error during fullscreen capture', error: e);
       return null;
     }
   }
 
-  /// 捕获选定区域的截图
-  Future<CaptureResult?> _captureSelectedRegion(CaptureRegion region) async {
+  /// 获取屏幕边界 (使用平台通道)
+  Future<Rect> _getScreenBounds() async {
+    _logger.d('Getting screen bounds via platform channel...');
     try {
-      // 获取临时文件路径
-      final tempFilePath = await _getTemporaryFilePath();
+      final dynamic boundsResult =
+          await platform.invokeMethod('getScreenBounds');
+      if (boundsResult is Map) {
+        final rectMap = Map<String, dynamic>.from(boundsResult);
+        final double x = rectMap['x'] as double? ?? 0.0;
+        final double y = rectMap['y'] as double? ?? 0.0;
+        final double width = rectMap['width'] as double? ?? 0.0;
+        final double height = rectMap['height'] as double? ?? 0.0;
+        _logger.d('Received screen bounds: x=$x, y=$y, w=$width, h=$height');
+        return Rect.fromLTWH(x, y, width, height);
+      } else {
+        _logger.e(
+            'Unexpected result type from getScreenBounds: ${boundsResult.runtimeType}');
+      }
+    } on PlatformException catch (e) {
+      _logger.e(
+          'Platform channel error getting screen bounds: ${e.code} - ${e.message}',
+          error: e.details);
+    } catch (e) {
+      _logger.e('Failed to get screen bounds from native', error: e);
+    }
+    // 回退或默认值
+    _logger.w('Falling back to Rect.zero for screen bounds.');
+    return Rect.zero;
+  }
 
-      // 创建一个 RepaintBoundary 来渲染选中区域
-      final boundary = RepaintBoundary(
-        child: Positioned(
-          left: region.x.toDouble(),
-          top: region.y.toDouble(),
-          width: region.width.toDouble(),
-          height: region.height.toDouble(),
-          child: SizedBox(
-            width: region.width.toDouble(),
-            height: region.height.toDouble(),
-          ),
-        ),
-      );
+  /// 窗口截图 (使用平台通道)
+  Future<CaptureResult?> _captureWindow() async {
+    _logger.d('Capturing active window via platform channel...');
+    try {
+      final dynamic result = await platform.invokeMethod('captureActiveWindow');
 
-      // 将 RepaintBoundary 转换为图像
-      final buildContext = navigatorKey.currentContext;
-      if (buildContext == null) return null;
+      if (result is Map) {
+        final resultMap = Map<String, dynamic>.from(result);
+        final Uint8List? imageBytes = resultMap['imageBytes'] as Uint8List?;
+        final Map<String, dynamic>? regionMap =
+            resultMap['region'] as Map<String, dynamic>?;
 
-      // 使用 BuildContext 前再次检查是否已被销毁
-      if (!buildContext.mounted) return null;
+        if (imageBytes == null || imageBytes.isEmpty || regionMap == null) {
+          _logger.e('Invalid data received from native captureActiveWindow.');
+          return null;
+        }
 
-      final renderObject = boundary.createRenderObject(buildContext);
-      renderObject.layout(BoxConstraints.tight(Size(
-        region.width.toDouble(),
-        region.height.toDouble(),
-      )));
+        final tempFilePath = await _getTemporaryFilePath();
+        final file = File(tempFilePath);
+        await file.writeAsBytes(imageBytes);
 
-      final image = await renderObject.toImage();
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+        final region = CaptureRegion(
+          x: regionMap['x'] as double? ?? 0.0,
+          y: regionMap['y'] as double? ?? 0.0,
+          width: regionMap['width'] as double? ?? 0.0,
+          height: regionMap['height'] as double? ?? 0.0,
+        );
+        _logger.d('Captured active window, region: $region');
 
-      if (byteData != null) {
         return CaptureResult(
-          imageBytes: byteData.buffer.asUint8List(),
+          imageBytes: imageBytes,
           imagePath: tempFilePath,
           region: region,
         );
+      } else {
+        _logger.e(
+            'Unexpected result type from captureActiveWindow: ${result.runtimeType}');
+        return null;
       }
+    } on PlatformException catch (e) {
+      _logger.e(
+          'Platform channel error during window capture: ${e.code} - ${e.message}',
+          error: e.details);
       return null;
     } catch (e) {
-      _logger.e('Error capturing selected region', error: e);
+      _logger.e('Error during window capture', error: e);
       return null;
     }
   }
 
-  /// 自由形状截图
+  /// 自由形状截图 (应用内选择 + 原生全屏截图 + 应用内裁剪)
   Future<CaptureResult?> _captureFreeform() async {
+    _logger.d('Starting freeform capture (App UI Selection)...');
     try {
+      // 1. 获取全屏截图 (使用原生方法)
+      final fullscreenResult = await _captureFullscreen();
+      if (fullscreenResult == null || fullscreenResult.imageBytes == null) {
+        _logger.e('Failed to get fullscreen image for freeform capture.');
+        return null;
+      }
+
       final completer = Completer<CaptureResult?>();
 
-      // 创建一个覆盖全屏的透明窗口来显示选择界面
-      late final OverlayEntry overlayEntry;
-      overlayEntry = OverlayEntry(
-        builder: (context) => FreeformSelection(
-          onSelectionComplete: (result) async {
-            overlayEntry.remove();
-            if (result.region == null || result.path == null) {
-              completer.complete(null);
-              return;
-            }
+      // 2. 显示应用内自由形状选择界面
+      if (navigatorKey.currentContext != null &&
+          navigatorKey.currentContext!.mounted) {
+        _logger.d('Showing freeform selection UI...');
+        showDialog<void>(
+          context: navigatorKey.currentContext!,
+          barrierDismissible: false,
+          barrierColor: Colors.transparent,
+          useSafeArea: false,
+          builder: (context) => Material(
+            type: MaterialType.transparency,
+            child: MediaQuery(
+              data: MediaQuery.of(context).copyWith(padding: EdgeInsets.zero),
+              child: FreeformSelection(
+                // 传递背景图 Uint8List
+                backgroundImageBytes: fullscreenResult.imageBytes!,
+                onSelectionComplete: (result) async {
+                  Navigator.of(context).pop();
+                  if (result.region == null || result.path == null) {
+                    _logger.d('Freeform selection cancelled or invalid.');
+                    completer.complete(null);
+                    return;
+                  }
+                  _logger.d(
+                      'Freeform selection complete: region=${result.region}, path provided.');
 
-            final capturedRegion = await _captureSelectedRegion(CaptureRegion(
-              x: result.region!.x,
-              y: result.region!.y,
-              width: result.region!.width,
-              height: result.region!.height,
-            ));
-            if (capturedRegion == null || capturedRegion.region == null) {
-              completer.complete(null);
-              return;
-            }
-
-            final size = Size(
-              capturedRegion.region!.width,
-              capturedRegion.region!.height,
-            );
-
-            final maskedImage = await _applyFreeformMask(
-              capture: capturedRegion,
-              size: size,
-              path: result.path!,
-            );
-            completer.complete(maskedImage);
-          },
-          onSelectionCancel: () {
-            overlayEntry.remove();
-            completer.complete(null);
-          },
-        ),
-      );
-
-      // 显示选择界面
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final context = WidgetsBinding.instance.rootElement;
-        if (context != null) {
-          Overlay.of(context).insert(overlayEntry);
-        }
-      });
-
+                  // 3. 应用蒙版并裁剪 (使用重构后的方法)
+                  final maskedResult = await _applyFreeformMask(
+                    originalImageBytes: fullscreenResult.imageBytes!,
+                    selectionPath: result.path!,
+                    selectionBounds: result.region!.toRect(),
+                  );
+                  completer.complete(maskedResult);
+                },
+                onSelectionCancel: () {
+                  _logger.d('Freeform selection cancelled by user.');
+                  Navigator.of(context).pop();
+                  completer.complete(null);
+                },
+              ),
+            ),
+          ),
+        );
+      } else {
+        _logger.e('No valid context for freeform selection UI.');
+        completer.complete(null);
+      }
       return completer.future;
     } catch (e) {
       _logger.e('Error capturing freeform', error: e);
@@ -490,217 +389,101 @@ class CaptureService {
     }
   }
 
-  /// 应用自由形状蒙版
+  /// 应用自由形状蒙版 (处理 Uint8List)
   Future<CaptureResult?> _applyFreeformMask({
-    required CaptureResult capture,
-    required Size size,
-    required Path path,
+    required Uint8List originalImageBytes,
+    required Path selectionPath, // 路径坐标是相对于应用内UI的
+    required Rect selectionBounds, // 边界坐标也是相对于应用内UI的
   }) async {
-    if (capture.imageBytes == null) return null;
-
-    final buildContext = navigatorKey.currentContext;
-    if (buildContext == null) return null;
-
-    // 创建一个 RepaintBoundary 来渲染蒙版区域
-    final boundary = RepaintBoundary(
-      child: CustomPaint(
-        painter: _MaskPainter(
-          imageBytes: capture.imageBytes!,
-          maskPath: path,
-        ),
-        size: size,
-      ),
-    );
-
-    // 将 RepaintBoundary 转换为图像
-    final renderObject = boundary.createRenderObject(buildContext);
-    renderObject.layout(BoxConstraints.tight(size));
-
-    final image = await renderObject.toImage();
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-
-    if (byteData == null) return null;
-
-    return CaptureResult(
-      imageBytes: byteData.buffer.asUint8List(),
-      imagePath: capture.imagePath,
-      region: capture.region,
-    );
-  }
-
-  /// 窗口截图
-  Future<CaptureResult?> _captureWindow() async {
+    _logger.d('Applying freeform mask...');
     try {
-      // 获取临时文件路径
-      final tempFilePath = await _getTemporaryFilePath();
+      // 1. 解码原始全屏图像
+      final codec = await ui.instantiateImageCodec(originalImageBytes);
+      final frame = await codec.getNextFrame();
+      final ui.Image originalImage = frame.image;
 
-      // 获取当前活动窗口
-      final capture = await capturer.ScreenCapturer.instance.capture(
-        mode: capturer.CaptureMode.window,
-        copyToClipboard: true,
-        silent: true,
-        imagePath: tempFilePath,
-      );
-
-      if (capture != null) {
-        // 获取窗口大小
-        final window = await _windowManager.getBounds();
-        return CaptureResult(
-          imageBytes: capture.imageBytes,
-          imagePath: tempFilePath,
-          region: CaptureRegion(
-            x: window.left,
-            y: window.top,
-            width: window.width,
-            height: window.height,
-          ),
-        );
+      if (originalImage.width <= 0 || originalImage.height <= 0) {
+        _logger.e('Invalid original image for masking.');
+        return null;
       }
-      _logger.e('Failed to capture window: no capture data');
-      return null;
-    } catch (e) {
-      _logger.e('Error capturing window', error: e);
-      return null;
-    }
-  }
+      _logger.d(
+          'Original image for masking: ${originalImage.width}x${originalImage.height}');
 
-  /// 全屏截图
-  Future<CaptureResult?> _captureFullscreen() async {
-    try {
-      // 获取临时文件路径
-      final tempFilePath = await _getTemporaryFilePath();
+      // 2. 准备绘制
+      final recorder = ui.PictureRecorder();
+      final width = math.max(1, selectionBounds.width.toInt());
+      final height = math.max(1, selectionBounds.height.toInt());
+      _logger.d('Mask canvas size: $width x $height');
+      final canvas = Canvas(
+          recorder, Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()));
 
-      final capture = await capturer.ScreenCapturer.instance.capture(
-        mode: capturer.CaptureMode.screen,
-        copyToClipboard: true,
-        silent: true,
-        imagePath: tempFilePath,
-      );
+      // 3. 调整路径坐标 (平移到0,0)
+      final Matrix4 transform = Matrix4.identity()
+        ..translate(-selectionBounds.left, -selectionBounds.top);
+      final translatedPath = selectionPath.transform(transform.storage);
 
-      if (capture != null) {
-        // 安全地获取浏览上下文
-        final context = navigatorKey.currentContext;
-        if (context == null) {
-          _logger.e('无法获取有效的导航上下文');
-          return null;
-        }
+      // 4. 绘制蒙版 (裁剪画布)
+      canvas.clipPath(translatedPath);
 
-        if (!context.mounted) {
-          _logger.e('导航上下文已不再有效');
-          return null;
-        }
+      // 5. 绘制原始图像的对应部分
+      final Rect srcRect = selectionBounds; // 假设选择坐标已对应屏幕坐标
+      final Rect dstRect =
+          Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble());
+      canvas.drawImageRect(originalImage, srcRect, dstRect, Paint());
 
-        final window = View.of(context);
-        final size = window.physicalSize;
-        return CaptureResult(
-          imageBytes: capture.imageBytes,
-          imagePath: tempFilePath,
-          region: CaptureRegion(
-            x: 0,
-            y: 0,
-            width: size.width,
-            height: size.height,
-          ),
-        );
-      }
-      _logger.e('Failed to capture fullscreen: no capture data');
-      return null;
-    } catch (e) {
-      _logger.e('Error capturing fullscreen', error: e);
-      return null;
-    }
-  }
+      // 6. 获取结果图像
+      final picture = recorder.endRecording();
+      final ui.Image maskedImage = await picture.toImage(width, height);
+      final byteData =
+          await maskedImage.toByteData(format: ui.ImageByteFormat.png);
 
-  /// 固定尺寸截图
-  Future<CaptureResult?> _captureFixedSize(Size size) async {
-    try {
-      // 获取全屏截图作为背景
-      final screenCapture = await capturer.ScreenCapturer.instance.capture(
-        mode: capturer.CaptureMode.screen,
-        copyToClipboard: false,
-        silent: true,
-      );
+      // 清理资源
+      originalImage.dispose();
+      maskedImage.dispose();
+      codec.dispose();
 
-      if (screenCapture == null || screenCapture.imageBytes == null) {
+      if (byteData == null) {
+        _logger.e('Failed to get byte data for masked image.');
         return null;
       }
 
-      final completer = Completer<CaptureResult?>();
+      // 7. 保存并返回结果
+      final tempFilePath = await _getTemporaryFilePath();
+      final file = File(tempFilePath);
+      await file.writeAsBytes(byteData.buffer.asUint8List());
 
-      // 创建一个新的 MaterialApp 来显示选择界面
-      if (navigatorKey.currentContext != null) {
-        showDialog<void>(
-          context: navigatorKey.currentContext!,
-          barrierDismissible: false,
-          builder: (context) => Material(
-            type: MaterialType.transparency,
-            child: RectangleSelection(
-              backgroundImage: screenCapture.imageBytes!,
-              onSelected: (rect) async {
-                Navigator.pop(context);
-                final result = await _captureSelectedRegion(CaptureRegion(
-                  x: rect.left,
-                  y: rect.top,
-                  width: size.width,
-                  height: size.height,
-                ));
-                completer.complete(result);
-              },
-              onCancel: () {
-                Navigator.pop(context);
-                completer.complete(null);
-              },
-            ),
-          ),
-        );
-      } else {
-        completer.complete(null);
-      }
+      _logger.d('Freeform masked image saved to $tempFilePath');
 
-      return completer.future;
-    } catch (e) {
-      _logger.e('Error capturing fixed size', error: e);
-      return null;
-    }
-  }
-
-  /// 滚动截图
-  Future<CaptureResult?> _captureScrolling() async {
-    try {
-      // 获取当前窗口的滚动信息
-      final initialCapture = await capturer.ScreenCapturer.instance.capture(
-        mode: capturer.CaptureMode.screen,
-        copyToClipboard: true,
-        silent: true,
-      );
-
-      if (initialCapture == null || initialCapture.imageBytes == null) {
-        return null;
-      }
-
-      // 解码图像以获取尺寸
-      final image = await decodeImageFromList(initialCapture.imageBytes!);
-
-      // 创建一个临时的图像列表来存储滚动截图
-      final List<CaptureResult> captures = [];
-      captures.add(CaptureResult(
-        imageBytes: initialCapture.imageBytes,
-        imagePath: initialCapture.imagePath,
+      return CaptureResult(
+        imageBytes: byteData.buffer.asUint8List(),
+        imagePath: tempFilePath,
         region: CaptureRegion(
-          x: 0,
-          y: 0,
-          width: image.width.toDouble(),
-          height: image.height.toDouble(),
+          x: selectionBounds.left,
+          y: selectionBounds.top,
+          width: selectionBounds.width,
+          height: selectionBounds.height,
         ),
-      ));
+      );
+    } catch (e) {
+      _logger.e('Error applying freeform mask', error: e);
+      return null;
+    }
+  }
 
-      // 注意: 未来实现自动滚动和截图拼接逻辑
-      // 1. 获取滚动容器的总高度
-      // 2. 计算需要滚动的次数
-      // 3. 每次滚动后截图并添加到captures列表
-      // 4. 最后拼接所有图片
+  /// 滚动截图 (依赖原生全屏截图)
+  Future<CaptureResult?> _captureScrolling() async {
+    _logger.d('Starting scrolling capture...');
+    try {
+      // 1. 获取初始截图（全屏）
+      final initialCapture = await _captureFullscreen();
+      if (initialCapture == null || initialCapture.imageBytes == null) {
+        _logger.e('Failed to get initial fullscreen for scrolling capture.');
+        return null;
+      }
 
-      return captures.first; // 临时返回第一张图片
+      _logger.w('Scrolling capture stitching not implemented yet.');
+
+      return initialCapture; // 临时返回第一张图片
     } catch (e) {
       _logger.e('Error capturing scrolling', error: e);
       return null;
@@ -710,63 +493,49 @@ class CaptureService {
   /// 处理截图结果
   Future<void> handleCaptureResult(
       BuildContext context, CaptureResult? result) async {
-    try {
-      if (result == null) {
-        _logger.w('截图结果为空');
-        if (context.mounted) {
-          await _showErrorDialog(context, '截图失败，请重试');
-        }
-        return;
-      }
-
-      if (result.imageBytes == null || result.imageBytes!.isEmpty) {
-        _logger.w('截图结果没有图像数据');
-        if (context.mounted) {
-          await _showErrorDialog(context, '截图没有有效的图像数据');
-        }
-        return;
-      }
-
-      _logger.d('准备显示截图预览浮窗，图片大小: ${result.imageBytes!.length} 字节');
-
-      if (!context.mounted) {
-        _logger.e('Context 不再有效，无法显示预览');
-        return;
-      }
-
-      // 使用悬浮窗显示截图预览
-      _showScreenshotPreview(context, result);
-    } catch (e) {
-      _logger.e('处理截图结果时出错', error: e);
+    if (result == null) {
+      _logger.w('截图结果为空');
       if (context.mounted) {
-        await _showErrorDialog(context, '处理截图结果时出错: $e');
+        await _showErrorDialog(context, '截图失败，请重试');
       }
+      return;
     }
+
+    if (result.imageBytes == null || result.imageBytes!.isEmpty) {
+      _logger.w('截图结果没有图像数据');
+      if (context.mounted) {
+        await _showErrorDialog(context, '截图没有有效的图像数据');
+      }
+      return;
+    }
+
+    _logger.d('准备显示截图预览浮窗，图片大小: ${result.imageBytes!.length} 字节');
+
+    if (!context.mounted) {
+      _logger.e('Context 不再有效，无法显示预览');
+      return;
+    }
+
+    // 使用悬浮窗显示截图预览
+    _showScreenshotPreview(context, result);
   }
 
   /// 显示截图预览浮窗
   void _showScreenshotPreview(BuildContext context, CaptureResult result) {
     try {
-      // 获取屏幕尺寸
       final screenSize = MediaQuery.of(context).size;
-
       _logger.d('创建预览浮窗，屏幕尺寸: ${screenSize.width}x${screenSize.height}');
-
-      // 声明OverlayEntry，但延迟初始化
       late final OverlayEntry overlayEntry;
-
-      // 初始化OverlayEntry
       overlayEntry = OverlayEntry(
         builder: (context) => Positioned(
-          left: 20, // 距离左侧20像素
-          top: (screenSize.height - 600) / 2, // 垂直居中，最大高度600
+          left: 20,
+          top: (screenSize.height - 600) / 2,
           child: Material(
             color: Colors.transparent,
             child: ScreenshotPreview(
               imageData: result.imageBytes!,
               imagePath: result.imagePath,
               onClose: () {
-                // 移除浮窗
                 _logger.d('关闭预览浮窗');
                 overlayEntry.remove();
               },
@@ -776,8 +545,6 @@ class CaptureService {
       );
 
       _logger.d('将预览浮窗添加到Overlay');
-
-      // 将浮窗添加到Overlay
       final overlay = Overlay.of(context);
       if (overlay != null) {
         overlay.insert(overlayEntry);
@@ -795,69 +562,132 @@ class CaptureService {
     }
   }
 
+  /// 显示错误对话框
   Future<void> _showErrorDialog(BuildContext context, String message) async {
     if (!context.mounted) return;
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Error'),
+        title: const Text('错误'),
         content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            child: const Text('确定'),
           ),
         ],
       ),
     );
   }
 
-  Future<void> captureSelectedRegion(
-      BuildContext context, CaptureRegion region) async {
+  // 使用 screen_capturer 进行区域截图
+  Future<CaptureResult?> _captureUsingScreenCapturer(CaptureMode mode) async {
+    _logger.d('使用 screen_capturer 进行区域截图，模式: $mode');
     try {
-      final result = await _captureSelectedRegion(region);
-      if (result == null) {
-        if (context.mounted) {
-          await _showErrorDialog(context, 'Failed to capture screen region');
-        }
-        return;
+      // 映射应用内的截图模式到 screen_capturer 的模式
+      capturer.CaptureMode? scMode;
+      switch (mode) {
+        case CaptureMode.rectangle:
+          scMode = capturer.CaptureMode.region; // 使用 screen_capturer 的区域截图模式
+          break;
+        case CaptureMode.window:
+          scMode = capturer.CaptureMode.window;
+          break;
+        case CaptureMode.fullscreen:
+          scMode = capturer.CaptureMode.screen;
+          break;
+        default:
+          _logger.w('不支持的 screen_capturer 模式: $mode');
+          return null;
       }
-      // ... existing code ...
+
+      if (scMode == null) {
+        _logger.e('无法映射截图模式: $mode');
+        return null;
+      }
+
+      // 临时文件路径，用于保存截图
+      final tempFilePath = await _getTemporaryFilePath();
+
+      // 调用 screen_capturer 进行截图
+      final capturedData = await capturer.ScreenCapturer.instance.capture(
+        mode: scMode,
+        imagePath: tempFilePath,
+        copyToClipboard: false, // 先不复制到剪贴板，后续由应用自己处理
+        silent: false, // 显示系统UI用于选择
+      );
+
+      if (capturedData == null || capturedData.imagePath == null) {
+        _logger.w('screen_capturer 截图返回结果为空或没有路径 (可能用户取消了操作)');
+        return null;
+      }
+
+      _logger.d('screen_capturer 截图成功: ${capturedData.imagePath}');
+
+      // 读取截图文件
+      final file = File(capturedData.imagePath!);
+      if (!await file.exists()) {
+        _logger.e('截图文件不存在: ${capturedData.imagePath}');
+        return null;
+      }
+
+      final imageBytes = await file.readAsBytes();
+      if (imageBytes.isEmpty) {
+        _logger.e('截图文件为空: ${capturedData.imagePath}');
+        return null;
+      }
+
+      // 由于 screen_capturer 可能不提供区域信息，这里需要分析图像获取实际区域
+      // 对于 region 模式，用户选择的区域就是整个图像，所以宽高是图像的尺寸
+      // 这里需要解码图像来获取宽高信息
+      final decodedImage = await decodeImageFromList(imageBytes);
+      final region = CaptureRegion(
+        x: 0, // screen_capturer 不提供具体坐标，这里设为0
+        y: 0,
+        width: decodedImage.width.toDouble(),
+        height: decodedImage.height.toDouble(),
+      );
+
+      return CaptureResult(
+        imageBytes: imageBytes,
+        imagePath: capturedData.imagePath!, // 确保非空
+        region: region,
+      );
     } catch (e) {
-      if (context.mounted) {
-        await _showErrorDialog(context, 'An error occurred: $e');
+      _logger.e('使用 screen_capturer 截图失败', error: e);
+      return null;
+    }
+  }
+
+  /// 测试 screen_capturer 区域截图功能
+  Future<bool> testScreenCapturerRegion() async {
+    _logger.d('测试 screen_capturer 区域截图功能');
+    try {
+      // 调用 screen_capturer 的区域截图功能
+      final tempFilePath = await _getTemporaryFilePath();
+      final capturedData = await capturer.ScreenCapturer.instance.capture(
+        mode: capturer.CaptureMode.region,
+        imagePath: tempFilePath,
+        copyToClipboard: false,
+        silent: false,
+      );
+
+      if (capturedData == null || capturedData.imagePath == null) {
+        _logger.w('区域截图测试失败：未返回结果或路径为空');
+        return false;
       }
+
+      final file = File(capturedData.imagePath!);
+      if (!await file.exists() || (await file.length()) == 0) {
+        _logger.w('区域截图测试失败：文件不存在或为空');
+        return false;
+      }
+
+      _logger.d('区域截图测试成功：${capturedData.imagePath}');
+      return true;
+    } catch (e) {
+      _logger.e('区域截图测试出错', error: e);
+      return false;
     }
   }
-}
-
-/// 蒙版绘制器
-class _MaskPainter extends CustomPainter {
-  final Uint8List imageBytes;
-  final Path maskPath;
-  ui.Image? _image;
-
-  _MaskPainter({
-    required this.imageBytes,
-    required this.maskPath,
-  }) {
-    _loadImage();
-  }
-
-  void _loadImage() {
-    decodeImageFromList(imageBytes).then((image) {
-      _image = image;
-    });
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (_image != null) {
-      canvas.clipPath(maskPath);
-      canvas.drawImage(_image!, Offset.zero, Paint());
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

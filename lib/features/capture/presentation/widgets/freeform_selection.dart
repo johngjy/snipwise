@@ -1,4 +1,7 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'dart:developer' as developer;
+import 'dart:math' as math;
 import '../../data/models/capture_result.dart';
 
 /// 自由形状选择结果
@@ -13,11 +16,13 @@ class FreeformSelectionResult {
 class FreeformSelection extends StatefulWidget {
   final Function(FreeformSelectionResult) onSelectionComplete;
   final VoidCallback onSelectionCancel;
+  final Uint8List backgroundImageBytes;
 
   const FreeformSelection({
     super.key,
     required this.onSelectionComplete,
     required this.onSelectionCancel,
+    required this.backgroundImageBytes,
   });
 
   @override
@@ -30,6 +35,8 @@ class _FreeformSelectionState extends State<FreeformSelection> {
   Rect? _boundingBox;
 
   void _onPanStart(DragStartDetails details) {
+    developer.log('Freeform pan start: ${details.localPosition}',
+        name: 'FreeformSelection');
     _points.clear();
     _points.add(details.localPosition);
     _currentPath = Path()
@@ -47,10 +54,9 @@ class _FreeformSelectionState extends State<FreeformSelection> {
 
   void _onPanEnd(DragEndDetails details) {
     if (_points.isNotEmpty && _currentPath != null && _boundingBox != null) {
-      // 闭合路径
       _currentPath?.close();
-
-      // 完成选择
+      developer.log('Freeform pan end, bounds: $_boundingBox',
+          name: 'FreeformSelection');
       widget.onSelectionComplete(FreeformSelectionResult(
         region: CaptureRegion(
           x: _boundingBox!.left,
@@ -61,43 +67,97 @@ class _FreeformSelectionState extends State<FreeformSelection> {
         path: _currentPath,
       ));
     } else {
+      developer.log('Freeform pan end - invalid selection',
+          name: 'FreeformSelection');
       widget.onSelectionCancel();
     }
   }
 
   void _updateBoundingBox() {
-    if (_points.isEmpty) return;
-
+    if (_points.isEmpty) {
+      _boundingBox = null;
+      return;
+    }
     double minX = _points[0].dx;
     double minY = _points[0].dy;
     double maxX = _points[0].dx;
     double maxY = _points[0].dy;
-
-    for (final point in _points) {
-      if (point.dx < minX) minX = point.dx;
-      if (point.dy < minY) minY = point.dy;
-      if (point.dx > maxX) maxX = point.dx;
-      if (point.dy > maxY) maxY = point.dy;
+    for (final point in _points.skip(1)) {
+      minX = math.min(minX, point.dx);
+      minY = math.min(minY, point.dy);
+      maxX = math.max(maxX, point.dx);
+      maxY = math.max(maxY, point.dy);
     }
-
     _boundingBox = Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onPanStart: _onPanStart,
-      onPanUpdate: _onPanUpdate,
-      onPanEnd: _onPanEnd,
-      child: Container(
-        color: Colors.transparent,
-        child: CustomPaint(
-          painter: _FreeformSelectionPainter(
-            points: _points,
-            path: _currentPath,
-            boundingBox: _boundingBox,
+    developer.log('Building FreeformSelection UI', name: 'FreeformSelection');
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        maintainBottomViewPadding: false,
+        child: GestureDetector(
+          onPanStart: _onPanStart,
+          onPanUpdate: _onPanUpdate,
+          onPanEnd: _onPanEnd,
+          onPanCancel: widget.onSelectionCancel,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Positioned.fill(
+                child: Image.memory(
+                  widget.backgroundImageBytes,
+                  fit: BoxFit.contain,
+                  alignment: Alignment.center,
+                  errorBuilder: (context, error, stackTrace) {
+                    developer.log('Failed to load background image: $error',
+                        name: 'FreeformSelection');
+                    return Center(
+                      child: Text(
+                        '无法加载背景图像',
+                        style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              Positioned.fill(
+                child: Container(color: Colors.black.withOpacity(0.3)),
+              ),
+              if (_currentPath != null)
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _FreeformSelectionPainter(
+                      path: _currentPath!,
+                      boundingBox: _boundingBox,
+                    ),
+                    isComplex: true,
+                    willChange: true,
+                  ),
+                ),
+              Positioned(
+                bottom: 20,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.6),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      '拖动鼠标绘制自由形状，按ESC取消',
+                      style: TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          child: Container(),
         ),
       ),
     );
@@ -105,13 +165,11 @@ class _FreeformSelectionState extends State<FreeformSelection> {
 }
 
 class _FreeformSelectionPainter extends CustomPainter {
-  final List<Offset> points;
-  final Path? path;
+  final Path path;
   final Rect? boundingBox;
 
   _FreeformSelectionPainter({
-    required this.points,
-    this.path,
+    required this.path,
     this.boundingBox,
   });
 
@@ -120,21 +178,23 @@ class _FreeformSelectionPainter extends CustomPainter {
     final paint = Paint()
       ..color = Colors.blue
       ..strokeWidth = 2.0
-      ..style = PaintingStyle.stroke;
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
-    if (path != null) {
-      canvas.drawPath(path!, paint);
-    }
+    canvas.drawPath(path, paint);
 
     if (boundingBox != null) {
-      canvas.drawRect(boundingBox!, paint);
+      final boundsPaint = Paint()
+        ..color = Colors.red.withOpacity(0.5)
+        ..strokeWidth = 1.0
+        ..style = PaintingStyle.stroke;
+      canvas.drawRect(boundingBox!, boundsPaint);
     }
   }
 
   @override
   bool shouldRepaint(_FreeformSelectionPainter oldDelegate) {
-    return points != oldDelegate.points ||
-        path != oldDelegate.path ||
-        boundingBox != oldDelegate.boundingBox;
+    return path != oldDelegate.path || boundingBox != oldDelegate.boundingBox;
   }
 }

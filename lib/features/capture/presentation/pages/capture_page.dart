@@ -10,6 +10,8 @@ import '../../../../core/services/window_service.dart';
 import '../../services/capture_service.dart';
 import '../../data/models/capture_result.dart';
 import '../../../hires_capture/presentation/providers/hires_capture_provider.dart';
+import '../../data/models/capture_mode.dart';
+import '../widgets/capture_toolbar.dart';
 
 /// 截图选择页面 - 打开软件时显示的主页面
 class CapturePage extends StatefulWidget {
@@ -92,15 +94,24 @@ class _CapturePageState extends State<CapturePage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // 使用提取的工具栏组件
-            Toolbar(
-              onCaptureRegion: _startCapture,
-              onCaptureHDScreen: _captureHDScreen,
-              onCaptureVideo: _captureVideo,
-              onCaptureWindow: _captureWindow,
-              onDelayCapture: _delayCapture,
-              onPerformOCR: _performOCR,
-              onOpenImage: _openImage,
-              onShowHistory: _showHistory,
+            CaptureToolbar(
+              onCaptureRegion: () =>
+                  _startCapture(context, CaptureMode.rectangle),
+              onCaptureHDScreen: () =>
+                  _startCapture(context, CaptureMode.fullscreen),
+              onCaptureVideo: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('视频录制功能尚未实现')),
+                );
+              },
+              onCaptureWindow: () => _startCapture(context, CaptureMode.window),
+              onDelayCapture: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('延时截图将在 3 秒后进行')),
+                );
+                _startCapture(context, CaptureMode.fullscreen,
+                    delay: const Duration(seconds: 3));
+              },
             ),
 
             // 主内容区
@@ -109,15 +120,27 @@ class _CapturePageState extends State<CapturePage> {
                 children: [
                   // 提示文本居中
                   Center(
-                    child: _isLoadingCapture
-                        ? const CircularProgressIndicator()
-                        : Text(
-                            _shortcutPromptText,
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey[600],
-                            ),
-                          ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _isLoadingCapture
+                            ? const CircularProgressIndicator()
+                            : Text(
+                                _shortcutPromptText,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                        const SizedBox(height: 20),
+                        ElevatedButton(
+                          onPressed: _isLoadingCapture
+                              ? null
+                              : _testScreenCapturerRegion,
+                          child: const Text('测试系统区域截图功能'),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -129,7 +152,8 @@ class _CapturePageState extends State<CapturePage> {
   }
 
   /// 开始截图
-  Future<void> _startCapture() async {
+  Future<void> _startCapture(BuildContext context, CaptureMode mode,
+      {Duration? delay}) async {
     if (_isLoadingCapture) return;
 
     setState(() {
@@ -137,66 +161,26 @@ class _CapturePageState extends State<CapturePage> {
     });
 
     try {
-      // 获取当前选择的截图模式
-      final provider = context.read<CaptureModeProvider>();
-      final mode = provider.currentMode;
-      final fixedSize = provider.fixedSize;
+      _logger.d('开始截图，模式: $mode, 延时: $delay');
 
-      _logger.d('开始截图，模式: $mode');
+      // 显示加载指示器
+      if (delay != null) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('截图将在 ${delay.inSeconds} 秒后开始...')),
+        );
+      }
 
       // 执行截图
-      final result = await CaptureService.instance.capture(
-        mode,
-        fixedSize: fixedSize,
-      );
+      final result = await CaptureService.instance.capture(mode, delay: delay);
 
-      // 检查组件是否仍然挂载
-      if (!mounted) return;
-
-      _logger.d('截图结果: ${result != null ? "成功" : "失败"}');
-      if (result != null) {
-        _logger.d('截图图像字节大小: ${result.imageBytes?.length ?? "无图像数据"}');
-        _logger.d('截图路径: ${result.imagePath ?? "无路径"}');
-      }
-
-      if (result != null && result.imageBytes != null) {
-        _logger.d('尝试直接导航到编辑页面');
-        // 直接导航到编辑页面
-        try {
-          await Navigator.pushNamed(
-            context,
-            '/editor',
-            arguments: {
-              'imageData': result.imageBytes,
-              'imagePath': result.imagePath,
-            },
-          );
-
-          // 检查组件是否仍然挂载
-          if (!mounted) return;
-
-          _logger.d('直接导航成功');
-        } catch (e) {
-          // 检查组件是否仍然挂载
-          if (!mounted) return;
-
-          _logger.e('直接导航失败: $e');
-          // 回退到使用 handleCaptureResult
-          await CaptureService.instance.handleCaptureResult(context, result);
-        }
-      } else {
-        _logger.d('开始处理截图结果 - Context mounted: $mounted');
-        // 处理截图结果
+      // 处理截图结果
+      if (context.mounted) {
         await CaptureService.instance.handleCaptureResult(context, result);
-
-        // 检查组件是否仍然挂载
-        if (!mounted) return;
-
-        _logger.d('处理截图结果完成');
       }
     } catch (e) {
-      _logger.e('截图过程发生错误: $e');
-      if (mounted) {
+      _logger.e('截图过程中出错', error: e);
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('截图失败: $e')),
         );
@@ -385,5 +369,42 @@ class _CapturePageState extends State<CapturePage> {
   /// 显示历史记录
   Future<void> _showHistory() async {
     // 实现显示历史记录
+  }
+
+  /// 测试系统区域截图功能
+  Future<void> _testScreenCapturerRegion() async {
+    setState(() {
+      _isLoadingCapture = true;
+    });
+
+    try {
+      final success = await CaptureService.instance.testScreenCapturerRegion();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            success ? '测试成功：系统区域截图功能正常工作！' : '测试失败：系统区域截图功能不可用。',
+          ),
+          backgroundColor: success ? Colors.green : Colors.red,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('测试出错: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingCapture = false;
+        });
+      }
+    }
   }
 }
