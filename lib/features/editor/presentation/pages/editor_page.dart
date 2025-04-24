@@ -147,43 +147,43 @@ class _EditorPageState extends State<EditorPage> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
         children: [
-          _buildToolbarButton(
+          _buildMenuButton(
             icon: Icons.add_circle_outline,
             label: 'New',
             onPressed: () {
               Navigator.pop(context);
             },
           ),
-          _buildToolbarButton(
+          _buildMenuButton(
             icon: Icons.high_quality,
             label: 'HD Snip',
             onPressed: () {},
           ),
-          _buildToolbarButton(
+          _buildMenuButton(
             icon: Icons.videocam_outlined,
             label: 'Video',
             onPressed: () {},
             showDropdown: true,
           ),
-          _buildToolbarButton(
+          _buildMenuButton(
             icon: Icons.grid_view,
             label: 'Mode',
             onPressed: () {},
             showDropdown: true,
           ),
-          _buildToolbarButton(
+          _buildMenuButton(
             icon: Icons.timer_outlined,
             label: 'Delay',
             onPressed: () {},
             showDropdown: true,
           ),
-          _buildToolbarButton(
+          _buildMenuButton(
             icon: Icons.folder_open_outlined,
             label: 'Open',
             onPressed: () {},
             showDropdown: true,
           ),
-          _buildToolbarButton(
+          _buildMenuButton(
             icon: Icons.history,
             label: 'History',
             onPressed: () {},
@@ -316,8 +316,8 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
-  /// 构建工具栏按钮
-  Widget _buildToolbarButton({
+  /// 构建菜单按钮
+  Widget _buildMenuButton({
     required IconData icon,
     required String label,
     required VoidCallback onPressed,

@@ -10,6 +10,7 @@ class AppTheme {
     brightness: Brightness.light,
     primarySwatch: Colors.blue,
     scaffoldBackgroundColor: Colors.white,
+    fontFamily: '.AppleSystemUIFont', // 使用macOS系统字体
     appBarTheme: const AppBarTheme(
       backgroundColor: Colors.white,
       foregroundColor: Colors.black,
@@ -37,6 +38,7 @@ class AppTheme {
     brightness: Brightness.dark,
     primarySwatch: Colors.blue,
     scaffoldBackgroundColor: const Color(0xFF121212),
+    fontFamily: '.AppleSystemUIFont', // 使用macOS系统字体
     appBarTheme: const AppBarTheme(
       backgroundColor: Color(0xFF1E1E1E),
       foregroundColor: Colors.white,

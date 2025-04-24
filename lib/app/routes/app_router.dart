@@ -7,6 +7,12 @@ import '../../features/editor/presentation/pages/editor_page.dart';
 class AppRouter {
   /// 生成路由
   static Route<dynamic> generateRoute(RouteSettings settings) {
+    // 首次启动时检查页面历史，避免创建重复页面
+    if (settings.name == AppRoutes.capture &&
+        Navigator.defaultRouteName != AppRoutes.capture) {
+      return MaterialPageRoute(builder: (_) => const CapturePage());
+    }
+
     switch (settings.name) {
       case AppRoutes.capture:
         return MaterialPageRoute(builder: (_) => const CapturePage());

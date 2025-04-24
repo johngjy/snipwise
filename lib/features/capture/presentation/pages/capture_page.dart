@@ -1,6 +1,13 @@
+import 'dart:async';
+import 'dart:typed_data';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../../app/routes/app_routes.dart';
+import '../widgets/toolbar.dart';
+import '../widgets/window_controls.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/services/window_service.dart';
+import '../../../editor/presentation/pages/editor_page.dart';
 
 /// 截图选择页面 - 打开软件时显示的主页面
 class CapturePage extends StatefulWidget {
@@ -11,7 +18,20 @@ class CapturePage extends StatefulWidget {
 }
 
 class _CapturePageState extends State<CapturePage> {
+  /// 是否正在加载截图
   bool _isLoadingCapture = false;
+
+  /// 获取基于操作系统的快捷键提示文本
+  String get _shortcutPromptText {
+    if (Platform.isMacOS) {
+      return 'Press Command + Shift + 4 to take a screenshot';
+    } else if (Platform.isWindows) {
+      return 'Press Win + Shift + S to take a screenshot';
+    } else {
+      // 默认文本，可以根据其他平台扩展
+      return 'Press shortcut keys to take a screenshot';
+    }
+  }
 
   @override
   void initState() {
@@ -20,38 +40,114 @@ class _CapturePageState extends State<CapturePage> {
     _registerShortcuts();
   }
 
-  /// 注册快捷键
+  /// 注册键盘快捷键
   void _registerShortcuts() {
-    // 实际实现会更复杂一些，这里只是示意
-    // 需要使用平台特定的方法注册全局快捷键
+    // 注册快捷键逻辑
+    // 这里可以添加全局热键监听的实现
   }
 
-  /// 执行截图
-  Future<void> _captureScreen() async {
+  @override
+  Widget build(BuildContext context) {
+    // 设置固定尺寸为1000w x 180h
+    return SizedBox(
+      width: 1000,
+      height: 180,
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        appBar: PreferredSize(
+          preferredSize: const Size.fromHeight(40), // 减小AppBar高度
+          child: AppBar(
+            backgroundColor: Colors.white,
+            automaticallyImplyLeading: false, // 不显示默认的返回按钮
+            title: Padding(
+              padding: const EdgeInsets.only(top: 5.0), // 减少顶部padding
+              child: const Text(
+                'SNIPWISE',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.primaryText,
+                  letterSpacing: 0.5,
+                  height: 1.0, // 减小行高
+                ),
+              ),
+            ),
+            centerTitle: false,
+            elevation: 0.5,
+            actions: [
+              // 使用提取的窗口控制组件
+              WindowControls(
+                onMinimize: () => WindowService.instance.minimizeWindow(),
+                onClose: () => WindowService.instance.closeWindow(),
+              ),
+            ],
+          ),
+        ),
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 使用提取的工具栏组件
+            Toolbar(
+              onCaptureRegion: _captureRegion,
+              onCaptureHDScreen: _captureHDScreen,
+              onCaptureVideo: _captureVideo,
+              onCaptureWindow: _captureWindow,
+              onDelayCapture: _delayCapture,
+              onPerformOCR: _performOCR,
+              onOpenImage: _openImage,
+              onShowHistory: _showHistory,
+            ),
+
+            // 主内容区
+            Expanded(
+              child: Stack(
+                children: [
+                  // 提示文本居中
+                  Center(
+                    child: _isLoadingCapture
+                        ? const CircularProgressIndicator()
+                        : Text(
+                            _shortcutPromptText,
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 区域截图
+  Future<void> _captureRegion() async {
+    if (_isLoadingCapture) return;
+
     setState(() {
       _isLoadingCapture = true;
     });
 
     try {
-      // 实际截图逻辑
-      // 截图完成后，导航到编辑页面
+      // 这里实现区域截图逻辑
+      // ...
 
-      // 模拟截图过程
-      await Future.delayed(const Duration(seconds: 1));
+      // 模拟获取截图数据
+      final Uint8List? capturedData = await _simulateCapture();
 
-      // 截图成功后跳转到编辑页面
-      if (mounted) {
-        Navigator.pushNamed(
+      // 如果成功获取截图，打开编辑器
+      if (capturedData != null && mounted) {
+        await Navigator.push(
           context,
-          AppRoutes.editor,
-          arguments: {
-            'imageData': null, // 实际应用中会传递截图数据
-            'imagePath': null,
-          },
+          MaterialPageRoute(
+            builder: (context) => EditorPage(imageData: capturedData),
+          ),
         );
       }
     } catch (e) {
-      // 错误处理
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('截图失败: $e')),
@@ -66,190 +162,48 @@ class _CapturePageState extends State<CapturePage> {
     }
   }
 
-  /// 执行高清截图
-  void _captureHDScreen() {
-    // 实现高清截图逻辑
+  /// 高清屏幕截图
+  Future<void> _captureHDScreen() async {
+    // 实现高清屏幕截图
   }
 
-  /// 录制视频
-  void _captureVideo() {
-    // 实现录制视频逻辑
+  /// 视频录制
+  Future<void> _captureVideo() async {
+    // 实现视频录制
   }
 
-  /// 打开现有图片
-  void _openImage() {
-    // 实现打开图片逻辑
+  /// 窗口截图
+  Future<void> _captureWindow() async {
+    // 实现窗口截图
   }
 
-  /// 查看历史记录
-  void _showHistory() {
-    // 实现查看历史记录逻辑
+  /// 延时截图
+  Future<void> _delayCapture() async {
+    // 实现延时截图
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text('SNIPWISE',
-            style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: false,
-        elevation: 0.5,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () {
-              // 在实际应用中，这可能会是最小化窗口而不是关闭应用
-              SystemNavigator.pop();
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // 工具栏
-          _buildToolbar(),
-
-          // 主内容区
-          Expanded(
-            child: Center(
-              child: _isLoadingCapture
-                  ? const CircularProgressIndicator()
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text(
-                          'Press Win + Shift + S to take a screenshot',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        ElevatedButton(
-                          onPressed: _captureScreen,
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 30,
-                              vertical: 15,
-                            ),
-                          ),
-                          child: const Text('Take Screenshot Now'),
-                        ),
-                      ],
-                    ),
-            ),
-          ),
-        ],
-      ),
-    );
+  /// 执行OCR识别
+  Future<void> _performOCR() async {
+    // 实现OCR识别
   }
 
-  /// 构建工具栏
-  Widget _buildToolbar() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(
-          bottom: BorderSide(
-            color: Colors.grey.shade300,
-            width: 1,
-          ),
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      child: Row(
-        children: [
-          _buildToolbarButton(
-            icon: Icons.add_circle_outline,
-            label: 'New',
-            onPressed: _captureScreen,
-          ),
-          _buildToolbarButton(
-            icon: Icons.high_quality,
-            label: 'HD Snip',
-            onPressed: _captureHDScreen,
-          ),
-          _buildToolbarButton(
-            icon: Icons.videocam_outlined,
-            label: 'Video',
-            onPressed: _captureVideo,
-            showDropdown: true,
-          ),
-          _buildToolbarButton(
-            icon: Icons.grid_view,
-            label: 'Mode',
-            onPressed: () {},
-            showDropdown: true,
-          ),
-          _buildToolbarButton(
-            icon: Icons.timer_outlined,
-            label: 'Delay',
-            onPressed: () {},
-            showDropdown: true,
-          ),
-          _buildToolbarButton(
-            icon: Icons.document_scanner_outlined,
-            label: 'OCR',
-            onPressed: () {},
-          ),
-          _buildToolbarButton(
-            icon: Icons.folder_open_outlined,
-            label: 'Open',
-            onPressed: _openImage,
-          ),
-          _buildToolbarButton(
-            icon: Icons.history,
-            label: 'History',
-            onPressed: _showHistory,
-          ),
-        ],
-      ),
-    );
+  /// 打开图片
+  Future<void> _openImage() async {
+    // 实现打开图片
   }
 
-  /// 构建工具栏按钮
-  Widget _buildToolbarButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onPressed,
-    bool showDropdown = false,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: onPressed,
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 8,
-            ),
-            child: Row(
-              children: [
-                Icon(icon, size: 22, color: Colors.black87),
-                const SizedBox(width: 8),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black87,
-                  ),
-                ),
-                if (showDropdown) ...[
-                  const SizedBox(width: 4),
-                  const Icon(Icons.arrow_drop_down,
-                      size: 18, color: Colors.black54),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+  /// 显示历史记录
+  Future<void> _showHistory() async {
+    // 实现显示历史记录
+  }
+
+  /// 模拟获取截图数据（临时方法，实际项目中应使用真实的截图API）
+  Future<Uint8List?> _simulateCapture() async {
+    // 模拟截图过程的延迟
+    await Future.delayed(const Duration(seconds: 1));
+
+    // 返回一个空白图像（1x1透明像素）
+    // 实际项目中应替换为真实的截图逻辑
+    return Uint8List.fromList([0, 0, 0, 0]);
   }
 }
