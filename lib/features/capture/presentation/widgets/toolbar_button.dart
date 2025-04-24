@@ -48,7 +48,7 @@ class ToolbarButton extends StatelessWidget {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
+                  color: Colors.black.withAlpha(8),
                   offset: const Offset(0, 1),
                   blurRadius: 2,
                 ),
@@ -61,7 +61,7 @@ class ToolbarButton extends StatelessWidget {
                 Icon(
                   icon,
                   size: 22,
-                  color: AppColors.primaryText,
+                  color: const Color(0xFF9E9E9E),
                 ),
                 const SizedBox(width: 6),
                 Text(
@@ -69,7 +69,7 @@ class ToolbarButton extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w400,
-                    color: AppColors.primaryText,
+                    color: Color(0xFF9E9E9E),
                   ),
                 ),
                 if (showDropdown) ...[
@@ -77,7 +77,7 @@ class ToolbarButton extends StatelessWidget {
                   const Icon(
                     Icons.keyboard_arrow_down_outlined,
                     size: 14,
-                    color: AppColors.primaryText,
+                    color: Color(0xFF9E9E9E),
                   ),
                 ],
               ],

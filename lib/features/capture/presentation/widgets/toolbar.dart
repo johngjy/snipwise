@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../../core/theme/app_colors.dart';
+import 'mode_selector.dart';
 
 /// 工具栏组件 - 显示在顶部的功能按钮
 class Toolbar extends StatelessWidget {
@@ -68,13 +68,8 @@ class Toolbar extends StatelessWidget {
             onPressed: onCaptureVideo,
           ),
 
-          // 模式按钮
-          _buildToolbarItem(
-            icon: Icons.grid_view_outlined,
-            label: 'Modle',
-            showDropdown: true,
-            onPressed: onCaptureWindow,
-          ),
+          // 模式选择器
+          const ModeSelectorPopup(),
 
           // 延迟按钮
           _buildToolbarItem(
@@ -116,68 +111,49 @@ class Toolbar extends StatelessWidget {
     required VoidCallback onPressed,
     bool showDropdown = false,
   }) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: Material(
-          color: Colors.transparent,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
           borderRadius: BorderRadius.circular(6),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(6),
-            onTap: onPressed,
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: AppColors.border,
-                  width: 1,
+          onTap: onPressed,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: const Color(0xFFE5E5E5),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 20,
+                  color: const Color(0xFF9E9E9E),
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    offset: const Offset(0, 1),
-                    blurRadius: 2,
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF9E9E9E),
                   ),
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    icon,
-                    size: 22,
-                    color: AppColors.primaryText,
-                  ),
+                ),
+                if (showDropdown) ...[
                   const SizedBox(width: 4),
-                  Flexible(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          label,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w400,
-                            color: AppColors.primaryText,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (showDropdown) ...[
-                          const SizedBox(width: 1),
-                          const Icon(
-                            Icons.keyboard_arrow_down_outlined,
-                            size: 12,
-                            color: AppColors.primaryText,
-                          ),
-                        ]
-                      ],
-                    ),
+                  const Icon(
+                    Icons.arrow_drop_down,
+                    size: 20,
+                    color: Color(0xFF9E9E9E),
                   ),
                 ],
-              ),
+              ],
             ),
           ),
         ),

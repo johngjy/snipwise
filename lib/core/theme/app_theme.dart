@@ -15,6 +15,7 @@ class AppTheme {
       iconTheme: const IconThemeData(
         size: 16,
         weight: 100, // 更细的图标
+        color: Color(0xFF9E9E9E), // 使用更浅的灰色
       ),
       dividerTheme: const DividerThemeData(
         space: 1,
@@ -33,7 +34,7 @@ class AppTheme {
           height: 1.0,
         ),
         iconTheme: IconThemeData(
-          color: AppColors.primaryText,
+          color: Color(0xFF9E9E9E), // 使用更浅的灰色
           size: 18,
         ),
       ),

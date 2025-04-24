@@ -84,13 +84,42 @@ class HiResCapureProvider extends ChangeNotifier {
       _setProcessing(true);
       _setStatus('正在处理高清截图...');
 
-      // TODO: 实现高清截图逻辑
-      // 1. 从原始图像获取选定区域的像素数据
-      // 2. 根据设置应用DPI和格式
-      // 3. 返回处理后的图像数据
+      // 获取选定区域的图像数据
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      final region = _settings.selectedRegion!;
+
+      // 计算目标DPI的缩放比例
+      final dpiScale = _settings.defaultDpi / 72.0; // 基准DPI为72
+
+      // 绘制选定区域
+      canvas.save();
+      canvas.scale(dpiScale);
+      canvas.drawImage(
+        _sourceImage!,
+        Offset(-region.left, -region.top),
+        Paint(),
+      );
+      canvas.restore();
+
+      // 创建高清图像
+      final picture = recorder.endRecording();
+      final width = (region.width * dpiScale).toInt();
+      final height = (region.height * dpiScale).toInt();
+      final image = await picture.toImage(width, height);
+
+      // 转换为字节数据
+      final format = _settings.outputFormat == 'PNG'
+          ? ui.ImageByteFormat.png
+          : ui.ImageByteFormat.rawRgba;
+
+      final byteData = await image.toByteData(format: format);
+      if (byteData == null) {
+        throw Exception('无法获取图像数据');
+      }
 
       _setStatus('高清截图处理完成');
-      return Uint8List(0); // 临时返回空数据，待实现
+      return byteData.buffer.asUint8List();
     } catch (e) {
       _setError('高清截图处理失败: ${e.toString()}');
       return null;

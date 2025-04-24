@@ -29,11 +29,8 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>This app needs screen capture access to take screenshots</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
+	<string>此应用需要访问屏幕录制功能以便进行截图</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>此应用需要控制其他应用以便进行窗口截图</string>
 </dict>
 </plist>

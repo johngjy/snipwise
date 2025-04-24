@@ -1,7 +1,14 @@
-import 'dart:typed_data';
+// import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'dart:async';
+import 'dart:math' as math;
+import 'dart:io';
 import 'package:flutter/material.dart';
-import '../../../../core/services/export_service.dart';
-import '../../../../core/services/file_service.dart';
+import 'package:flutter/services.dart';
+import '../widgets/delay_dropdown_menu.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:logger/logger.dart';
+import '../../../../core/services/clipboard_service.dart';
 
 /// 图片编辑页面 - 截图完成后的编辑界面
 class EditorPage extends StatefulWidget {
@@ -22,14 +29,15 @@ class EditorPage extends StatefulWidget {
 }
 
 class _EditorPageState extends State<EditorPage> {
+  final _logger = Logger();
   // 图片数据
   Uint8List? _imageData;
 
+  // 图片尺寸
+  Size? _imageSize;
+
   // 选择的工具
   String _selectedTool = 'select';
-
-  // 导出服务
-  final ExportService _exportService = ExportService(FileService());
 
   @override
   void initState() {
@@ -41,34 +49,91 @@ class _EditorPageState extends State<EditorPage> {
   /// 如果提供了图片路径而不是数据，则加载图片
   Future<void> _loadImageIfNeeded() async {
     if (_imageData == null && widget.imagePath != null) {
-      final fileService = FileService();
-      final data = await fileService.loadImageFromPath(widget.imagePath!);
-      if (data != null && mounted) {
+      try {
+        final bytes = await File(widget.imagePath!).readAsBytes();
+        if (!mounted) return;
         setState(() {
-          _imageData = data;
+          _imageData = bytes;
         });
+        await _calculateImageSize();
+      } catch (e) {
+        _logger.e('Error loading image: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('加载图片失败: $e')),
+          );
+        }
       }
+    } else if (widget.imageData != null) {
+      _imageData = widget.imageData;
+      await _calculateImageSize();
+    }
+  }
+
+  /// 计算图片尺寸
+  Future<void> _calculateImageSize() async {
+    if (_imageData != null) {
+      final completer = Completer<ui.Image>();
+      ui.decodeImageFromList(_imageData!, (result) {
+        completer.complete(result);
+      });
+      final image = await completer.future;
+      if (!mounted) return;
+      setState(() {
+        _imageSize = Size(image.width.toDouble(), image.height.toDouble());
+      });
     }
   }
 
   /// 保存编辑后的图片
   Future<void> _saveImage() async {
-    if (_imageData != null) {
-      final result = await _exportService.exportImage(
-        _imageData!,
-        'snipwise_${DateTime.now().millisecondsSinceEpoch}',
-        format: ExportFormat.png,
-      );
+    if (_imageData == null) return;
 
-      if (result != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('图片已保存到: $result')),
-        );
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('保存失败')),
-        );
-      }
+    try {
+      final fileName =
+          'screenshot_${DateTime.now().millisecondsSinceEpoch}.png';
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = '${directory.path}/$fileName';
+
+      await File(filePath).writeAsBytes(_imageData!);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('图片已保存至 $filePath')),
+      );
+    } catch (e) {
+      _logger.e('Error saving image: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('保存图片失败')),
+      );
+    }
+  }
+
+  /// 复制图片到剪贴板
+  Future<void> _copyImage() async {
+    if (_imageData == null) return;
+
+    try {
+      // 使用ClipboardService复制图像
+      final clipboardService = ClipboardService();
+      final success = await clipboardService.copyImage(_imageData!);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? '图片已复制到剪贴板' : '复制图片失败'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      _logger.e('Error copying image: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('复制图片失败')),
+      );
     }
   }
 
@@ -81,6 +146,10 @@ class _EditorPageState extends State<EditorPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 计算编辑器宽度和高度
+    final double editorWidth = _calculateEditorWidth();
+    final double editorHeight = _calculateEditorHeight(editorWidth);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('SNIPWISE',
@@ -89,47 +158,68 @@ class _EditorPageState extends State<EditorPage> {
         elevation: 0.5,
         actions: [
           IconButton(
-            icon: const Icon(Icons.minimize),
+            icon: const Icon(Icons.minimize, color: Color(0xFF9E9E9E)),
             onPressed: () {
               // 最小化窗口逻辑
             },
           ),
           IconButton(
-            icon: const Icon(Icons.crop_square),
+            icon: const Icon(Icons.crop_square, color: Color(0xFF9E9E9E)),
             onPressed: () {
               // 窗口最大化/还原逻辑
             },
           ),
           IconButton(
-            icon: const Icon(Icons.close),
+            icon: const Icon(Icons.close, color: Color(0xFF9E9E9E)),
             onPressed: () {
               Navigator.pop(context);
             },
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // 主工具栏
-          _buildMainToolbar(),
+      body: SizedBox(
+        width: editorWidth,
+        height: editorHeight + 120, // 加上工具栏高度
+        child: Column(
+          children: [
+            // 主工具栏
+            _buildMainToolbar(),
 
-          // 编辑工具栏
-          _buildEditingToolbar(),
+            // 编辑工具栏
+            _buildEditingToolbar(),
 
-          // 图片编辑区域
-          Expanded(
-            child: _imageData != null
-                ? _buildImageEditor()
-                : const Center(
-                    child: Text(
-                      'No image to edit',
-                      style: TextStyle(fontSize: 18, color: Colors.grey),
-                    ),
-                  ),
-          ),
-        ],
+            // 图片编辑区域
+            Expanded(
+              child: _buildImageEditor(),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  /// 计算编辑器宽度
+  double _calculateEditorWidth() {
+    // 如果没有图像尺寸，使用最小宽度1000
+    if (_imageSize == null) return 1000;
+
+    // 根据图像宽度计算，但确保最小宽度为1000
+    return math.max(1000, _imageSize!.width);
+  }
+
+  /// 计算编辑器高度
+  double _calculateEditorHeight(double width) {
+    // 如果没有图像尺寸，使用默认高度600
+    if (_imageSize == null) return 600;
+
+    // 如果图像宽度需要缩放，按比例缩放高度
+    if (_imageSize!.width > width) {
+      final scale = width / _imageSize!.width;
+      return _imageSize!.height * scale;
+    }
+
+    // 否则使用原始高度
+    return _imageSize!.height;
   }
 
   /// 构建主工具栏
@@ -171,12 +261,7 @@ class _EditorPageState extends State<EditorPage> {
             onPressed: () {},
             showDropdown: true,
           ),
-          _buildMenuButton(
-            icon: Icons.timer_outlined,
-            label: 'Delay',
-            onPressed: () {},
-            showDropdown: true,
-          ),
+          _buildDelayButton(),
           _buildMenuButton(
             icon: Icons.folder_open_outlined,
             label: 'Open',
@@ -190,6 +275,74 @@ class _EditorPageState extends State<EditorPage> {
             showDropdown: true,
           ),
         ],
+      ),
+    );
+  }
+
+  /// 构建延时按钮
+  Widget _buildDelayButton() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () {
+            final BuildContext currentContext = context;
+            final RenderBox button =
+                currentContext.findRenderObject() as RenderBox;
+            final Offset offset = button.localToGlobal(Offset.zero);
+
+            showMenu<Duration>(
+              context: currentContext,
+              position: RelativeRect.fromLTRB(
+                offset.dx,
+                offset.dy + button.size.height,
+                offset.dx + button.size.width,
+                offset.dy + button.size.height + 200,
+              ),
+              items: [
+                PopupMenuItem<Duration>(
+                  padding: EdgeInsets.zero,
+                  child: DelayDropdownMenu(
+                    onDelaySelected: (duration) {
+                      // 处理延时选择
+                      ScaffoldMessenger.of(currentContext).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                              'Selected delay: ${duration.inSeconds} seconds'),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.timer_outlined, size: 22, color: Color(0xFF9E9E9E)),
+                SizedBox(width: 8),
+                Text(
+                  'Delay',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF9E9E9E),
+                  ),
+                ),
+                SizedBox(width: 4),
+                Icon(Icons.arrow_drop_down, size: 18, color: Color(0xFF9E9E9E)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -273,6 +426,7 @@ class _EditorPageState extends State<EditorPage> {
             tooltip: '复制',
             tool: 'copy',
             isAction: true,
+            onPressed: _copyImage,
           ),
           _buildEditingToolButton(
             icon: Icons.save,
@@ -290,26 +444,91 @@ class _EditorPageState extends State<EditorPage> {
   Widget _buildImageEditor() {
     return Container(
       color: Colors.grey.shade200,
-      padding: const EdgeInsets.all(16),
       child: Center(
-        child: InteractiveViewer(
-          minScale: 0.5,
-          maxScale: 4.0,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(51),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: Image.memory(
-              _imageData!,
-              fit: BoxFit.contain,
-            ),
+        child: _imageData == null
+            ? const Text('没有图片数据',
+                style: TextStyle(fontSize: 18, color: Colors.grey))
+            : Stack(
+                children: [
+                  // 图片显示区域
+                  InteractiveViewer(
+                    minScale: 0.5,
+                    maxScale: 4.0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withAlpha(26),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Image.memory(
+                        _imageData!,
+                        fit: BoxFit.none, // 不进行缩放，显示原始尺寸
+                      ),
+                    ),
+                  ),
+
+                  // 工具框
+                  Positioned(
+                    left: 10,
+                    top: 10,
+                    child: Row(
+                      children: [
+                        _buildToolButton(Icons.crop, '裁剪'),
+                        _buildToolButton(Icons.rotate_right, '旋转'),
+                        _buildToolButton(Icons.text_fields, '文字'),
+                      ],
+                    ),
+                  ),
+
+                  // 右上角工具按钮
+                  Positioned(
+                    right: 10,
+                    top: 10,
+                    child: Row(
+                      children: [
+                        _buildToolButton(Icons.save, '保存', onTap: _saveImage),
+                        _buildToolButton(Icons.copy, '复制', onTap: _copyImage),
+                        _buildToolButton(Icons.close, '关闭',
+                            onTap: () => Navigator.pop(context)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  /// 构建工具按钮
+  Widget _buildToolButton(IconData icon, String tooltip,
+      {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Tooltip(
+        message: tooltip,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(4),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha(26),
+                blurRadius: 2,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Icon(
+            icon,
+            size: 20,
+            color: Colors.grey.shade700,
           ),
         ),
       ),
@@ -338,20 +557,20 @@ class _EditorPageState extends State<EditorPage> {
             ),
             child: Row(
               children: [
-                Icon(icon, size: 22, color: Colors.black87),
+                Icon(icon, size: 22, color: const Color(0xFF9E9E9E)),
                 const SizedBox(width: 8),
                 Text(
                   label,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
-                    color: Colors.black87,
+                    color: Color(0xFF9E9E9E),
                   ),
                 ),
                 if (showDropdown) ...[
                   const SizedBox(width: 4),
                   const Icon(Icons.arrow_drop_down,
-                      size: 18, color: Colors.black54),
+                      size: 18, color: Color(0xFF9E9E9E)),
                 ],
               ],
             ),
@@ -369,33 +588,13 @@ class _EditorPageState extends State<EditorPage> {
     bool isAction = false,
     VoidCallback? onPressed,
   }) {
-    final isSelected = _selectedTool == tool && !isAction;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Tooltip(
-        message: tooltip,
-        child: Material(
-          color: isSelected ? Colors.blue.withAlpha(26) : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(4),
-            onTap: onPressed ??
-                () {
-                  if (!isAction) {
-                    _setTool(tool);
-                  }
-                },
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              child: Icon(
-                icon,
-                size: 24,
-                color: isSelected ? Colors.blue : Colors.black87,
-              ),
-            ),
-          ),
-        ),
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        icon: Icon(icon),
+        onPressed: onPressed ?? () => _setTool(tool),
+        color: _selectedTool == tool ? Colors.blue : Colors.grey.shade700,
+        splashRadius: 20,
       ),
     );
   }

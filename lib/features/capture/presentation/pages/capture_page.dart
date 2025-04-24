@@ -1,13 +1,15 @@
-import 'dart:async';
-import 'dart:typed_data';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:logger/logger.dart';
 import '../widgets/toolbar.dart';
 import '../widgets/window_controls.dart';
+import '../providers/capture_mode_provider.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/services/window_service.dart';
-import '../../../editor/presentation/pages/editor_page.dart';
+import '../../services/capture_service.dart';
+import '../../data/models/capture_result.dart';
+import '../../../hires_capture/presentation/providers/hires_capture_provider.dart';
 
 /// 截图选择页面 - 打开软件时显示的主页面
 class CapturePage extends StatefulWidget {
@@ -20,6 +22,9 @@ class CapturePage extends StatefulWidget {
 class _CapturePageState extends State<CapturePage> {
   /// 是否正在加载截图
   bool _isLoadingCapture = false;
+
+  // 日志记录器
+  final _logger = Logger();
 
   /// 获取基于操作系统的快捷键提示文本
   String get _shortcutPromptText {
@@ -59,9 +64,9 @@ class _CapturePageState extends State<CapturePage> {
           child: AppBar(
             backgroundColor: Colors.white,
             automaticallyImplyLeading: false, // 不显示默认的返回按钮
-            title: Padding(
-              padding: const EdgeInsets.only(top: 5.0), // 减少顶部padding
-              child: const Text(
+            title: const Padding(
+              padding: EdgeInsets.only(top: 5.0), // 减少顶部padding
+              child: Text(
                 'SNIPWISE',
                 style: TextStyle(
                   fontSize: 16,
@@ -88,7 +93,7 @@ class _CapturePageState extends State<CapturePage> {
           children: [
             // 使用提取的工具栏组件
             Toolbar(
-              onCaptureRegion: _captureRegion,
+              onCaptureRegion: _startCapture,
               onCaptureHDScreen: _captureHDScreen,
               onCaptureVideo: _captureVideo,
               onCaptureWindow: _captureWindow,
@@ -123,8 +128,8 @@ class _CapturePageState extends State<CapturePage> {
     );
   }
 
-  /// 区域截图
-  Future<void> _captureRegion() async {
+  /// 开始截图
+  Future<void> _startCapture() async {
     if (_isLoadingCapture) return;
 
     setState(() {
@@ -132,22 +137,65 @@ class _CapturePageState extends State<CapturePage> {
     });
 
     try {
-      // 这里实现区域截图逻辑
-      // ...
+      // 获取当前选择的截图模式
+      final provider = context.read<CaptureModeProvider>();
+      final mode = provider.currentMode;
+      final fixedSize = provider.fixedSize;
 
-      // 模拟获取截图数据
-      final Uint8List? capturedData = await _simulateCapture();
+      _logger.d('开始截图，模式: $mode');
 
-      // 如果成功获取截图，打开编辑器
-      if (capturedData != null && mounted) {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => EditorPage(imageData: capturedData),
-          ),
-        );
+      // 执行截图
+      final result = await CaptureService.instance.capture(
+        mode,
+        fixedSize: fixedSize,
+      );
+
+      // 检查组件是否仍然挂载
+      if (!mounted) return;
+
+      _logger.d('截图结果: ${result != null ? "成功" : "失败"}');
+      if (result != null) {
+        _logger.d('截图图像字节大小: ${result.imageBytes?.length ?? "无图像数据"}');
+        _logger.d('截图路径: ${result.imagePath ?? "无路径"}');
+      }
+
+      if (result != null && result.imageBytes != null) {
+        _logger.d('尝试直接导航到编辑页面');
+        // 直接导航到编辑页面
+        try {
+          await Navigator.pushNamed(
+            context,
+            '/editor',
+            arguments: {
+              'imageData': result.imageBytes,
+              'imagePath': result.imagePath,
+            },
+          );
+
+          // 检查组件是否仍然挂载
+          if (!mounted) return;
+
+          _logger.d('直接导航成功');
+        } catch (e) {
+          // 检查组件是否仍然挂载
+          if (!mounted) return;
+
+          _logger.e('直接导航失败: $e');
+          // 回退到使用 handleCaptureResult
+          await CaptureService.instance.handleCaptureResult(context, result);
+        }
+      } else {
+        _logger.d('开始处理截图结果 - Context mounted: $mounted');
+        // 处理截图结果
+        await CaptureService.instance.handleCaptureResult(context, result);
+
+        // 检查组件是否仍然挂载
+        if (!mounted) return;
+
+        _logger.d('处理截图结果完成');
       }
     } catch (e) {
+      _logger.e('截图过程发生错误: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('截图失败: $e')),
@@ -164,7 +212,87 @@ class _CapturePageState extends State<CapturePage> {
 
   /// 高清屏幕截图
   Future<void> _captureHDScreen() async {
-    // 实现高清屏幕截图
+    if (_isLoadingCapture) return;
+
+    setState(() {
+      _isLoadingCapture = true;
+    });
+
+    try {
+      // 获取当前选择的截图模式
+      final provider = context.read<CaptureModeProvider>();
+      final mode = provider.currentMode;
+      final fixedSize = provider.fixedSize;
+
+      // 获取高清截图设置
+      final hiResProvider = context.read<HiResCapureProvider>();
+
+      // 执行普通截图
+      final result = await CaptureService.instance.capture(
+        mode,
+        fixedSize: fixedSize,
+      );
+
+      // 检查组件是否仍然挂载
+      if (!mounted) return;
+
+      if (result?.imageBytes != null) {
+        // 将截图结果设置为高清截图的源图像
+        final image = await decodeImageFromList(result!.imageBytes!);
+
+        // 检查组件是否仍然挂载
+        if (!mounted) return;
+
+        await hiResProvider.setSourceImage(image);
+
+        // 检查组件是否仍然挂载
+        if (!mounted) return;
+
+        if (result.region != null) {
+          hiResProvider.setSelectedRegion(Rect.fromLTWH(
+            result.region!.x,
+            result.region!.y,
+            result.region!.width,
+            result.region!.height,
+          ));
+        }
+
+        // 执行高清截图处理
+        final hiResImageBytes = await hiResProvider.captureHighRes();
+
+        // 检查组件是否仍然挂载
+        if (!mounted) return;
+
+        if (hiResImageBytes != null) {
+          // 处理高清截图结果
+          await CaptureService.instance.handleCaptureResult(
+            context,
+            CaptureResult(
+              imageBytes: hiResImageBytes,
+              imagePath: result.imagePath,
+              region: result.region,
+            ),
+          );
+
+          // 最终检查
+          if (!mounted) return;
+
+          _logger.d('高清截图处理完成');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('高清截图失败: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingCapture = false;
+        });
+      }
+    }
   }
 
   /// 视频录制
@@ -179,7 +307,69 @@ class _CapturePageState extends State<CapturePage> {
 
   /// 延时截图
   Future<void> _delayCapture() async {
-    // 实现延时截图
+    final selectedDelay = await showDialog<Duration>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Select Delay'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: const Text('3 seconds'),
+                onTap: () => Navigator.pop(context, const Duration(seconds: 3)),
+              ),
+              ListTile(
+                title: const Text('5 seconds'),
+                onTap: () => Navigator.pop(context, const Duration(seconds: 5)),
+              ),
+              ListTile(
+                title: const Text('10 seconds'),
+                onTap: () =>
+                    Navigator.pop(context, const Duration(seconds: 10)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selectedDelay != null) {
+      // 检查组件是否仍然挂载
+      if (!mounted) return;
+
+      // 获取当前选择的截图模式
+      final provider = context.read<CaptureModeProvider>();
+      final mode = provider.currentMode;
+      final fixedSize = provider.fixedSize;
+
+      // 显示倒计时提示
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'Screenshot will be taken in ${selectedDelay.inSeconds} seconds...'),
+          duration: selectedDelay,
+        ),
+      );
+
+      // 执行延时截图
+      final result = await CaptureService.instance.capture(
+        mode,
+        fixedSize: fixedSize,
+        delay: selectedDelay,
+      );
+
+      // 检查组件是否仍然挂载
+      if (!mounted) return;
+
+      // 处理截图结果
+      await CaptureService.instance.handleCaptureResult(context, result);
+
+      // 检查组件是否仍然挂载
+      if (!mounted) return;
+
+      _logger.d('延时截图处理完成');
+    }
   }
 
   /// 执行OCR识别
@@ -195,15 +385,5 @@ class _CapturePageState extends State<CapturePage> {
   /// 显示历史记录
   Future<void> _showHistory() async {
     // 实现显示历史记录
-  }
-
-  /// 模拟获取截图数据（临时方法，实际项目中应使用真实的截图API）
-  Future<Uint8List?> _simulateCapture() async {
-    // 模拟截图过程的延迟
-    await Future.delayed(const Duration(seconds: 1));
-
-    // 返回一个空白图像（1x1透明像素）
-    // 实际项目中应替换为真实的截图逻辑
-    return Uint8List.fromList([0, 0, 0, 0]);
   }
 }

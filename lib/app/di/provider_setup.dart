@@ -6,10 +6,12 @@ import '../../features/editor/presentation/providers/tools_provider.dart';
 import '../../features/editor/presentation/providers/settings_provider.dart';
 import '../../features/hires_capture/presentation/providers/hires_capture_provider.dart';
 import '../../features/annotation/presentation/providers/magnifier_provider.dart';
+import '../../features/capture/presentation/providers/capture_mode_provider.dart';
 
 /// 全局Provider配置
 List<SingleChildWidget> globalProviders = [
   ChangeNotifierProvider(create: (_) => ThemeProvider()),
+  ChangeNotifierProvider(create: (_) => CaptureModeProvider()),
   // 其他全局Provider...
 ];
 
