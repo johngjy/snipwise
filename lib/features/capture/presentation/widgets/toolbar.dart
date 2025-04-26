@@ -41,6 +41,9 @@ class Toolbar extends StatefulWidget {
   /// 显示历史记录回调
   final VoidCallback onShowHistory;
 
+  /// 长截图回调
+  final VoidCallback onCaptureLongScreenshot;
+
   /// 构造函数
   const Toolbar({
     super.key,
@@ -54,10 +57,11 @@ class Toolbar extends StatefulWidget {
     required this.onShowHistory,
     required this.onCaptureFullscreen, // 新增
     required this.onCaptureRectangle, // 新增
+    required this.onCaptureLongScreenshot, // 新增长截图回调
   });
 
   // 定义按钮间距常量，便于统一管理
-  static const double kButtonSpacing = 10.0; // 减小按钮间距，使工具栏更紧凑
+  static const double kButtonSpacing = 6.0; // 更紧凑的按钮间距
   static const double kHorizontalPadding = 0.0;
 
   @override
@@ -95,67 +99,79 @@ class _ToolbarState extends State<Toolbar> {
     return IntrinsicWidth(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 5),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // New Button
-            ToolbarButtonStyle.build(
-              icon: PhosphorIcons.plusCircle(PhosphorIconsStyle.light),
-              label: 'New',
-              onPressed: widget.onCaptureRegion,
-            ),
-            const SizedBox(width: Toolbar.kButtonSpacing),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // New Button
+              ToolbarButtonStyle.build(
+                icon: PhosphorIcons.plusCircle(PhosphorIconsStyle.light),
+                label: 'New',
+                onPressed: widget.onCaptureRegion,
+              ),
+              const SizedBox(width: Toolbar.kButtonSpacing),
 
-            // Video Button
-            ToolbarButtonStyle.build(
-              icon: PhosphorIcons.play(PhosphorIconsStyle.light),
-              label: 'Video',
-              showDropdown: true,
-              onPressed: widget.onCaptureVideo,
-            ),
-            const SizedBox(width: Toolbar.kButtonSpacing),
+              // Video Button
+              ToolbarButtonStyle.build(
+                icon: PhosphorIcons.play(PhosphorIconsStyle.light),
+                label: 'Video',
+                showDropdown: true,
+                onPressed: widget.onCaptureVideo,
+              ),
+              const SizedBox(width: Toolbar.kButtonSpacing),
 
-            // Mode Button
-            ModeHoverMenuButton(
-              onCaptureRectangle: widget.onCaptureRectangle,
-              onCaptureFullscreen: widget.onCaptureFullscreen,
-              onCaptureWindow: widget.onCaptureWindow,
-            ),
-            const SizedBox(width: Toolbar.kButtonSpacing),
+              // Mode Button
+              ModeHoverMenuButton(
+                onCaptureRectangle: widget.onCaptureRectangle,
+                onCaptureFullscreen: widget.onCaptureFullscreen,
+                onCaptureWindow: widget.onCaptureWindow,
+              ),
+              const SizedBox(width: Toolbar.kButtonSpacing),
 
-            // Delay Button - 恢复为简单按钮，直接调用 onDelayCapture
-            ToolbarButtonStyle.build(
-              icon: PhosphorIcons.clock(PhosphorIconsStyle.light),
-              label: 'Delay',
-              showDropdown: true, // 保留下拉箭头视觉提示
-              onPressed: widget.onDelayCapture, // 点击直接触发外部回调
-            ),
-            const SizedBox(width: Toolbar.kButtonSpacing),
+              // Long Screenshot Button
+              ToolbarButtonStyle.build(
+                icon: PhosphorIcons.arrowsOutLineVertical(
+                    PhosphorIconsStyle.light),
+                label: 'Long',
+                onPressed: widget.onCaptureLongScreenshot,
+              ),
+              const SizedBox(width: Toolbar.kButtonSpacing),
 
-            // OCR Button
-            ToolbarButtonStyle.build(
-              icon: PhosphorIcons.textT(PhosphorIconsStyle.light),
-              label: 'OCR',
-              onPressed: widget.onPerformOCR,
-            ),
-            const SizedBox(width: Toolbar.kButtonSpacing),
+              // Delay Button - 恢复为简单按钮，直接调用 onDelayCapture
+              ToolbarButtonStyle.build(
+                icon: PhosphorIcons.clock(PhosphorIconsStyle.light),
+                label: 'Delay',
+                showDropdown: true, // 保留下拉箭头视觉提示
+                onPressed: widget.onDelayCapture, // 点击直接触发外部回调
+              ),
+              const SizedBox(width: Toolbar.kButtonSpacing),
 
-            // Open Button
-            ToolbarButtonStyle.build(
-              icon: PhosphorIcons.folderOpen(PhosphorIconsStyle.light),
-              label: 'Open',
-              onPressed: widget.onOpenImage,
-            ),
-            const SizedBox(width: Toolbar.kButtonSpacing),
+              // OCR Button
+              ToolbarButtonStyle.build(
+                icon: PhosphorIcons.textT(PhosphorIconsStyle.light),
+                label: 'OCR',
+                onPressed: widget.onPerformOCR,
+              ),
+              const SizedBox(width: Toolbar.kButtonSpacing),
 
-            // History Button
-            ToolbarButtonStyle.build(
-              icon:
-                  PhosphorIcons.clockCounterClockwise(PhosphorIconsStyle.light),
-              label: 'History',
-              onPressed: widget.onShowHistory,
-            ),
-          ],
+              // Open Button
+              ToolbarButtonStyle.build(
+                icon: PhosphorIcons.folderOpen(PhosphorIconsStyle.light),
+                label: 'Open',
+                onPressed: widget.onOpenImage,
+              ),
+              const SizedBox(width: Toolbar.kButtonSpacing),
+
+              // History Button
+              ToolbarButtonStyle.build(
+                icon: PhosphorIcons.clockCounterClockwise(
+                    PhosphorIconsStyle.light),
+                label: 'History',
+                onPressed: widget.onShowHistory,
+              ),
+            ],
+          ),
         ),
       ),
     );

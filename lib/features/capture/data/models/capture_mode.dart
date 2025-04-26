@@ -9,6 +9,7 @@ enum CaptureMode {
   fixedSize, // 固定尺寸
   scrolling, // 滚动截图
   region, // 区域截图
+  longscroll, // 长截图（滚动截图）
 }
 
 /// 截图模式配置
@@ -79,6 +80,13 @@ class CaptureModeConfigs {
       label: 'Region',
       description: 'Capture a specific region',
       shortcut: '⌘ + Shift + G',
+    ),
+    CaptureMode.longscroll: CaptureModeConfig(
+      mode: CaptureMode.longscroll,
+      icon: Icons.vertical_align_center,
+      label: 'Long Screenshot',
+      description: 'Capture and stitch multiple screenshots',
+      shortcut: '⌘ + Shift + J',
     ),
   };
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // Import for RawKeyboardListener
 import 'package:provider/provider.dart';
 import 'package:logger/logger.dart';
+import 'package:window_manager/window_manager.dart'; // 添加 window_manager 导入
 import '../widgets/toolbar.dart';
 import '../providers/capture_mode_provider.dart';
 import '../../data/models/capture_mode.dart';
@@ -10,6 +11,7 @@ import '../../data/models/capture_mode.dart';
 import '../../../../core/widgets/standard_app_bar.dart'; // 导入标准化顶部栏
 import '../../services/capture_service.dart';
 import '../../../../core/services/window_service.dart'; // 重新导入窗口服务
+import '../../services/long_screenshot_service.dart'; // 导入长截图服务
 // import '../../data/models/capture_result.dart'; // Unused import - REMOVE
 // import '../../../hires_capture/presentation/providers/hires_capture_provider.dart'; // Unused import - REMOVE
 // import 'package:path/path.dart' as path; // Unused import - REMOVE
@@ -39,6 +41,10 @@ class _CapturePageState extends State<CapturePage> {
   // 记录是否已调整过窗口大小
   bool _hasAdjustedWindowSize = false;
 
+  // 记录调整窗口尺寸的尝试次数
+  int _windowSizeAdjustAttempts = 0;
+  static const int _maxWindowAdjustAttempts = 3;
+
   /// 获取基于操作系统的快捷键提示文本
   String get _shortcutPromptText {
     if (Platform.isMacOS) {
@@ -54,13 +60,14 @@ class _CapturePageState extends State<CapturePage> {
   @override
   void initState() {
     super.initState();
-    // Request focus for keyboard listener
+
+    // 在第一帧渲染后请求焦点和调整窗口大小
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        // Check if mounted before requesting focus
+        // 请求焦点以便接收键盘事件
         FocusScope.of(context).requestFocus(_focusNode);
 
-        // 在第一帧渲染后调整窗口大小
+        // 调整窗口大小
         _adjustWindowSizeToToolbar();
       }
     });
@@ -70,32 +77,56 @@ class _CapturePageState extends State<CapturePage> {
   void _adjustWindowSizeToToolbar() {
     if (!mounted || _hasAdjustedWindowSize) return;
 
-    // 获取工具栏容器的 RenderBox
-    final RenderBox? toolbarBox =
-        _toolbarContainerKey.currentContext?.findRenderObject() as RenderBox?;
-
-    if (toolbarBox != null) {
-      // 测量工具栏宽度
-      final toolbarWidth = toolbarBox.size.width;
-
-      // 计算窗口宽度 = 工具栏宽度 + 左右边距 (20+20)
-      final windowWidth = toolbarWidth + 40.0;
-
-      _logger.d('调整窗口尺寸: 工具栏宽度 = $toolbarWidth, 窗口宽度 = $windowWidth');
-
-      // 调整窗口大小，保持原始高度
-      WindowService.instance.resizeWindow(Size(windowWidth, 180.0));
-
-      // 标记已调整，避免重复调整
+    // 超过最大尝试次数则停止
+    if (_windowSizeAdjustAttempts >= _maxWindowAdjustAttempts) {
+      _logger.w('调整窗口尺寸已达最大尝试次数($_maxWindowAdjustAttempts)，使用默认尺寸');
       _hasAdjustedWindowSize = true;
-    } else {
-      _logger.w('无法获取工具栏渲染框，窗口尺寸未调整');
-
-      // 如果首次尝试失败，在下一帧重试
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _adjustWindowSizeToToolbar();
-      });
+      return;
     }
+
+    _windowSizeAdjustAttempts++;
+
+    // 延迟获取尺寸，确保布局已完成
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _hasAdjustedWindowSize) return;
+
+      // 获取工具栏容器的 RenderBox
+      final RenderBox? toolbarBox =
+          _toolbarContainerKey.currentContext?.findRenderObject() as RenderBox?;
+
+      if (toolbarBox != null && toolbarBox.hasSize) {
+        // 测量工具栏宽度
+        final toolbarWidth = toolbarBox.size.width;
+
+        // 计算窗口最小宽度 = 工具栏宽度 + 左右边距 (20+20)
+        final minWindowWidth = toolbarWidth + 40.0;
+
+        _logger.d('调整窗口最小宽度: 工具栏宽度 = $toolbarWidth, 最小窗口宽度 = $minWindowWidth');
+
+        // 先设置窗口的最小尺寸
+        windowManager.setMinimumSize(Size(minWindowWidth, 180.0)).then((_) {
+          // 如果当前窗口尺寸小于计算出的最小宽度，则调整窗口大小
+          windowManager.getSize().then((currentSize) {
+            if (currentSize.width < minWindowWidth) {
+              WindowService.instance.resizeWindow(Size(minWindowWidth, 180.0));
+            }
+
+            // 标记已调整，避免重复调整
+            _hasAdjustedWindowSize = true;
+          });
+        });
+      } else {
+        _logger.w(
+            '无法获取工具栏渲染框，窗口尺寸未调整 (尝试 $_windowSizeAdjustAttempts/$_maxWindowAdjustAttempts)');
+
+        // 再次尝试，但使用延迟以确保布局完成
+        if (_windowSizeAdjustAttempts < _maxWindowAdjustAttempts) {
+          Future.delayed(const Duration(milliseconds: 500), () {
+            _adjustWindowSizeToToolbar();
+          });
+        }
+      }
+    });
   }
 
   @override
@@ -127,7 +158,7 @@ class _CapturePageState extends State<CapturePage> {
               key: _toolbarContainerKey, // 添加 key 以便测量尺寸
               color: const Color(0xFFF5F5F5), // 浅灰色背景
               padding: const EdgeInsets.symmetric(
-                  horizontal: 20.0, vertical: 2.0), // 减小vertical padding
+                  horizontal: 20.0, vertical: 0.0), // 减小vertical padding为0
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Consumer<CaptureModeProvider>(
@@ -140,6 +171,8 @@ class _CapturePageState extends State<CapturePage> {
                     onCaptureFullscreen: () =>
                         _triggerCapture(CaptureMode.fullscreen),
                     onCaptureWindow: () => _triggerCapture(CaptureMode.window),
+                    // 新增长截图回调
+                    onCaptureLongScreenshot: _captureLongScreenshot,
 
                     // 旧/其他回调保持
                     onCaptureHDScreen: () =>
@@ -159,20 +192,16 @@ class _CapturePageState extends State<CapturePage> {
               child: Container(
                 color: Colors.white,
                 width: double.infinity,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // 快捷键提示文本
-                    _isLoadingCapture
-                        ? const CircularProgressIndicator(strokeWidth: 2.0)
-                        : Text(
-                            _shortcutPromptText,
-                            style: TextStyle(
-                              color: Colors.grey[400],
-                              fontSize: 14,
-                            ),
+                child: Center(
+                  child: _isLoadingCapture
+                      ? const CircularProgressIndicator(strokeWidth: 2.0)
+                      : Text(
+                          _shortcutPromptText,
+                          style: TextStyle(
+                            color: Colors.grey[400],
+                            fontSize: 14,
                           ),
-                  ],
+                        ),
                 ),
               ),
             ),
@@ -316,6 +345,87 @@ class _CapturePageState extends State<CapturePage> {
     }
   }
 
+  /// 长截图功能
+  Future<void> _captureLongScreenshot() async {
+    _logger.i('长截图功能被触发');
+
+    if (_isLoadingCapture || !mounted) {
+      _logger.w('当前已有截图任务进行中或组件未挂载，无法执行长截图');
+      return;
+    }
+
+    try {
+      setState(() {
+        _isLoadingCapture = true;
+      });
+
+      // 显示准备提示
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('准备长截图模式，请稍候...'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+
+      // 短暂延迟，让用户有时间准备
+      await Future.delayed(const Duration(seconds: 1));
+
+      // 调用长截图服务
+      final result = await LongScreenshotService.instance.captureLongScreenshot(
+        context: context,
+      );
+
+      if (result != null) {
+        _logger.i('长截图完成，图片路径: ${result.path}');
+
+        // 显示成功消息
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('长截图已完成，正在打开编辑器...')),
+          );
+
+          // 导航到编辑器页面
+          await Navigator.pushNamed(
+            context,
+            '/editor',
+            arguments: {
+              'imagePath': result.path,
+              'imageBytes': await result.readAsBytes(),
+            },
+          );
+        }
+      } else {
+        _logger.w('长截图操作未完成或被取消');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('长截图操作未完成'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (e, stackTrace) {
+      _logger.e('长截图过程中发生错误', error: e, stackTrace: stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('长截图失败: ${e.toString()}'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingCapture = false;
+        });
+      }
+    }
+  }
+
   // Handle keyboard events
   void _handleKeyEvent(KeyEvent event) {
     if (event is KeyDownEvent) {
@@ -349,6 +459,14 @@ class _CapturePageState extends State<CapturePage> {
           event.logicalKey == LogicalKeyboardKey.keyW) {
         _logger.d('Window capture shortcut triggered');
         targetMode = CaptureMode.window;
+      }
+      // Long screenshot shortcut
+      else if (isShiftPressed &&
+          (isMetaPressed || isControlPressed) &&
+          event.logicalKey == LogicalKeyboardKey.keyJ) {
+        _logger.d('Long screenshot shortcut triggered');
+        _captureLongScreenshot();
+        return; // 直接返回，不需要设置模式
       }
 
       // 如果匹配到截图快捷键，则设置模式并触发截图

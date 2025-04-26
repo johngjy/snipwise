@@ -16,15 +16,15 @@ class ToolbarButtonStyle {
     // 根据标签应用不同样式 (和原 Toolbar 逻辑一致)
     if (label == 'New') {
       itemPadding = EdgeInsets.symmetric(
-          horizontal: 8, vertical: Platform.isMacOS ? 5 : 3);
-      iconSize = 23;
-      fontSize = 15.0;
+          horizontal: 6, vertical: Platform.isMacOS ? 4 : 2);
+      iconSize = 20;
+      fontSize = 14.0;
     } else {
       itemPadding = EdgeInsets.symmetric(
-          horizontal: Platform.isMacOS ? 8 : 5,
-          vertical: Platform.isMacOS ? 3 : 2);
-      iconSize = 20;
-      fontSize = 13.0;
+          horizontal: Platform.isMacOS ? 6 : 4,
+          vertical: Platform.isMacOS ? 2 : 1);
+      iconSize = 18;
+      fontSize = 12.0;
     }
 
     final Widget buttonContent = Container(
@@ -45,7 +45,7 @@ class ToolbarButtonStyle {
             size: iconSize,
             color: const Color(0xFF616161),
           ),
-          const SizedBox(width: 5),
+          const SizedBox(width: 4),
           Text(
             label,
             style: TextStyle(
@@ -56,10 +56,10 @@ class ToolbarButtonStyle {
             ),
           ),
           if (showDropdown) ...[
-            const SizedBox(width: 4),
+            const SizedBox(width: 2),
             const Icon(
               Icons.arrow_drop_down,
-              size: 18,
+              size: 16,
               color: Color(0xFF9E9E9E),
             ),
           ],

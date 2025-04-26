@@ -48,7 +48,7 @@ class StandardAppBar extends StatelessWidget {
         forceShowWindowControls || !Platform.isMacOS;
 
     return Container(
-      height: 36,
+      height: 30,
       color: backgroundColor,
       child: Stack(
         children: [
@@ -66,7 +66,7 @@ class StandardAppBar extends StatelessWidget {
           // 标题和控制按钮
           Padding(
             padding:
-                const EdgeInsets.symmetric(horizontal: 15.0, vertical: 2.0),
+                const EdgeInsets.symmetric(horizontal: 15.0, vertical: 0.0),
             child: Row(
               children: [
                 // 返回按钮（如果需要）

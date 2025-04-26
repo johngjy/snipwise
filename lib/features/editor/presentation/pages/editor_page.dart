@@ -185,6 +185,8 @@ class _EditorPageState extends State<EditorPage> {
                         'Capture Fullscreen triggered from Editor - No action'),
                     onCaptureRectangle: () => _logger.i(
                         'Capture Rectangle triggered from Editor - No action'),
+                    onCaptureLongScreenshot: () => _logger
+                        .i('Long Screenshot triggered from Editor - No action'),
                     onDelayCapture: () => _logger
                         .i('Delay Capture triggered from Editor - No action'),
                     onPerformOCR: () => _logger.i('OCR triggered from Editor'),

@@ -152,6 +152,11 @@ class CaptureService {
         _logger.w('Scrolling capture not yet implemented');
         return null;
 
+      case CaptureMode.longscroll:
+        _logger.w(
+            'Long scroll capture should be handled by LongScreenshotService, not CaptureService');
+        return null;
+
       case CaptureMode.fixedSize:
         if (fixedSize == null) {
           _logger.e('Fixed size capture called without specifying a size');
