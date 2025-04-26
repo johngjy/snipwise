@@ -23,13 +23,13 @@ void main() async {
 
     // 设置窗口属性
     const windowOptions = WindowOptions(
-      size: Size(760, 180),
+      size: Size(700, 180), // 稍小的初始大小，稍后会根据工具栏宽度调整
       center: true,
       backgroundColor: Colors.transparent,
       skipTaskbar: false,
       titleBarStyle: TitleBarStyle.hidden, // 隐藏标题栏
       title: 'Snipwise',
-      minimumSize: Size(700, 180), // 设置最小尺寸
+      minimumSize: Size(400, 180), // 设置较小的最小尺寸，以适应不同工具栏宽度
       fullScreen: false,
       windowButtonVisibility: true, // 确保窗口按钮可见
     );

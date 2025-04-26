@@ -99,6 +99,16 @@ class WindowService with WindowListener {
     }
   }
 
+  /// 设置窗口大小
+  Future<void> resizeWindow(Size size) async {
+    try {
+      await windowManager.setSize(size);
+      _logger.d('Window size set to: ${size.width} x ${size.height}');
+    } catch (e) {
+      _logger.e('Failed to set window size', error: e);
+    }
+  }
+
   // WindowListener 接口实现 - 这些方法将被 window_manager 自动调用
 
   @override

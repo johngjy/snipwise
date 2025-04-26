@@ -57,7 +57,7 @@ class Toolbar extends StatefulWidget {
   });
 
   // 定义按钮间距常量，便于统一管理
-  static const double kButtonSpacing = 15.0;
+  static const double kButtonSpacing = 10.0; // 减小按钮间距，使工具栏更紧凑
   static const double kHorizontalPadding = 0.0;
 
   @override

@@ -9,6 +9,7 @@ import '../../data/models/capture_mode.dart';
 // import '../../../../core/services/window_service.dart'; // Unused import
 import '../../../../core/widgets/standard_app_bar.dart'; // 导入标准化顶部栏
 import '../../services/capture_service.dart';
+import '../../../../core/services/window_service.dart'; // 重新导入窗口服务
 // import '../../data/models/capture_result.dart'; // Unused import - REMOVE
 // import '../../../hires_capture/presentation/providers/hires_capture_provider.dart'; // Unused import - REMOVE
 // import 'package:path/path.dart' as path; // Unused import - REMOVE
@@ -32,6 +33,12 @@ class _CapturePageState extends State<CapturePage> {
   // FocusNode for keyboard shortcuts
   final FocusNode _focusNode = FocusNode();
 
+  // 为工具栏容器添加一个 GlobalKey，以便在渲染后测量其宽度
+  final GlobalKey _toolbarContainerKey = GlobalKey();
+
+  // 记录是否已调整过窗口大小
+  bool _hasAdjustedWindowSize = false;
+
   /// 获取基于操作系统的快捷键提示文本
   String get _shortcutPromptText {
     if (Platform.isMacOS) {
@@ -52,8 +59,43 @@ class _CapturePageState extends State<CapturePage> {
       if (mounted) {
         // Check if mounted before requesting focus
         FocusScope.of(context).requestFocus(_focusNode);
+
+        // 在第一帧渲染后调整窗口大小
+        _adjustWindowSizeToToolbar();
       }
     });
+  }
+
+  /// 调整窗口大小以适应工具栏宽度
+  void _adjustWindowSizeToToolbar() {
+    if (!mounted || _hasAdjustedWindowSize) return;
+
+    // 获取工具栏容器的 RenderBox
+    final RenderBox? toolbarBox =
+        _toolbarContainerKey.currentContext?.findRenderObject() as RenderBox?;
+
+    if (toolbarBox != null) {
+      // 测量工具栏宽度
+      final toolbarWidth = toolbarBox.size.width;
+
+      // 计算窗口宽度 = 工具栏宽度 + 左右边距 (20+20)
+      final windowWidth = toolbarWidth + 40.0;
+
+      _logger.d('调整窗口尺寸: 工具栏宽度 = $toolbarWidth, 窗口宽度 = $windowWidth');
+
+      // 调整窗口大小，保持原始高度
+      WindowService.instance.resizeWindow(Size(windowWidth, 180.0));
+
+      // 标记已调整，避免重复调整
+      _hasAdjustedWindowSize = true;
+    } else {
+      _logger.w('无法获取工具栏渲染框，窗口尺寸未调整');
+
+      // 如果首次尝试失败，在下一帧重试
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _adjustWindowSizeToToolbar();
+      });
+    }
   }
 
   @override
@@ -80,11 +122,12 @@ class _CapturePageState extends State<CapturePage> {
                   Platform.isWindows, // 在Windows上强制显示窗口控制按钮
             ),
 
-            // 浅灰色背景的工具栏区域
+            // 浅灰色背景的工具栏区域 - 添加 key
             Container(
+              key: _toolbarContainerKey, // 添加 key 以便测量尺寸
               color: const Color(0xFFF5F5F5), // 浅灰色背景
               padding: const EdgeInsets.symmetric(
-                  horizontal: 20.0, vertical: 2.0), // 进一步减小vertical padding
+                  horizontal: 20.0, vertical: 2.0), // 减小vertical padding
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Consumer<CaptureModeProvider>(
