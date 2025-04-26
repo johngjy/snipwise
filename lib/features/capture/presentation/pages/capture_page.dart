@@ -4,6 +4,7 @@ import 'package:flutter/services.dart'; // Import for RawKeyboardListener
 import 'package:provider/provider.dart';
 import 'package:logger/logger.dart';
 import 'package:window_manager/window_manager.dart'; // 添加 window_manager 导入
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../widgets/toolbar.dart';
 import '../providers/capture_mode_provider.dart';
 import '../../data/models/capture_mode.dart';
@@ -12,6 +13,9 @@ import '../../../../core/widgets/standard_app_bar.dart'; // 导入标准化顶�
 import '../../services/capture_service.dart';
 import '../../../../core/services/window_service.dart'; // 重新导入窗口服务
 import '../../services/long_screenshot_service.dart'; // 导入长截图服务
+import '../widgets/capture_menu_item.dart';
+import '../widgets/delay_menu.dart';
+import '../widgets/video_menu.dart';
 // import '../../data/models/capture_result.dart'; // Unused import - REMOVE
 // import '../../../hires_capture/presentation/providers/hires_capture_provider.dart'; // Unused import - REMOVE
 // import 'package:path/path.dart' as path; // Unused import - REMOVE
@@ -29,14 +33,32 @@ class _CapturePageState extends State<CapturePage> {
   /// 是否正在加载截图
   bool _isLoadingCapture = false;
 
+  /// 延时菜单的可见性
+  bool _isDelayMenuVisible = false;
+
+  /// 视频菜单的可见性
+  bool _isVideoMenuVisible = false;
+
+  /// 延时菜单的引用点
+  final LayerLink _delayLayerLink = LayerLink();
+
+  /// 视频菜单的引用点
+  final LayerLink _videoLayerLink = LayerLink();
+
+  /// 延时菜单的浮层
+  OverlayEntry? _delayOverlayEntry;
+
+  /// 视频菜单的浮层
+  OverlayEntry? _videoOverlayEntry;
+
   // 日志记录器
   final _logger = Logger();
 
   // FocusNode for keyboard shortcuts
   final FocusNode _focusNode = FocusNode();
 
-  // 为工具栏容器添加一个 GlobalKey，以便在渲染后测量其宽度
-  final GlobalKey _toolbarContainerKey = GlobalKey();
+  // 为整个容器添加一个 GlobalKey，以便在渲染后测量其宽度
+  final GlobalKey _containerKey = GlobalKey();
 
   // 记录是否已调整过窗口大小
   bool _hasAdjustedWindowSize = false;
@@ -68,13 +90,13 @@ class _CapturePageState extends State<CapturePage> {
         FocusScope.of(context).requestFocus(_focusNode);
 
         // 调整窗口大小
-        _adjustWindowSizeToToolbar();
+        _adjustWindowSize();
       }
     });
   }
 
-  /// 调整窗口大小以适应工具栏宽度
-  void _adjustWindowSizeToToolbar() {
+  /// 调整窗口大小
+  void _adjustWindowSize() {
     if (!mounted || _hasAdjustedWindowSize) return;
 
     // 超过最大尝试次数则停止
@@ -86,53 +108,116 @@ class _CapturePageState extends State<CapturePage> {
 
     _windowSizeAdjustAttempts++;
 
-    // 延迟获取尺寸，确保布局已完成
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _hasAdjustedWindowSize) return;
-
-      // 获取工具栏容器的 RenderBox
-      final RenderBox? toolbarBox =
-          _toolbarContainerKey.currentContext?.findRenderObject() as RenderBox?;
-
-      if (toolbarBox != null && toolbarBox.hasSize) {
-        // 测量工具栏宽度
-        final toolbarWidth = toolbarBox.size.width;
-
-        // 计算窗口最小宽度 = 工具栏宽度 + 左右边距 (20+20)
-        final minWindowWidth = toolbarWidth + 40.0;
-
-        _logger.d('调整窗口最小宽度: 工具栏宽度 = $toolbarWidth, 最小窗口宽度 = $minWindowWidth');
-
-        // 先设置窗口的最小尺寸
-        windowManager.setMinimumSize(Size(minWindowWidth, 180.0)).then((_) {
-          // 如果当前窗口尺寸小于计算出的最小宽度，则调整窗口大小
-          windowManager.getSize().then((currentSize) {
-            if (currentSize.width < minWindowWidth) {
-              WindowService.instance.resizeWindow(Size(minWindowWidth, 180.0));
-            }
-
-            // 标记已调整，避免重复调整
-            _hasAdjustedWindowSize = true;
-          });
-        });
-      } else {
-        _logger.w(
-            '无法获取工具栏渲染框，窗口尺寸未调整 (尝试 $_windowSizeAdjustAttempts/$_maxWindowAdjustAttempts)');
-
-        // 再次尝试，但使用延迟以确保布局完成
-        if (_windowSizeAdjustAttempts < _maxWindowAdjustAttempts) {
-          Future.delayed(const Duration(milliseconds: 500), () {
-            _adjustWindowSizeToToolbar();
-          });
-        }
-      }
-    });
+    // 设置固定窗口大小，符合设计规格
+    WindowService.instance.resizeWindow(const Size(300, 550));
+    _hasAdjustedWindowSize = true;
   }
 
   @override
   void dispose() {
+    _hideDelayMenu();
+    _hideVideoMenu();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  /// 显示延时菜单
+  void _showDelayMenu() {
+    _hideVideoMenu(); // 确保其他菜单隐藏
+
+    if (_delayOverlayEntry != null) {
+      _hideDelayMenu();
+      return;
+    }
+
+    _delayOverlayEntry = OverlayEntry(
+      builder: (context) => Positioned(
+        width: 200,
+        child: CompositedTransformFollower(
+          link: _delayLayerLink,
+          offset: const Offset(300, 0), // 在右侧显示
+          child: DelayMenu(
+            onDelay3Seconds: () =>
+                _handleDelaySelection(const Duration(seconds: 3)),
+            onDelay5Seconds: () =>
+                _handleDelaySelection(const Duration(seconds: 5)),
+            onDelay10Seconds: () =>
+                _handleDelaySelection(const Duration(seconds: 10)),
+          ),
+        ),
+      ),
+    );
+
+    Overlay.of(context).insert(_delayOverlayEntry!);
+    setState(() {
+      _isDelayMenuVisible = true;
+    });
+  }
+
+  /// 显示视频菜单
+  void _showVideoMenu() {
+    _hideDelayMenu(); // 确保其他菜单隐藏
+
+    if (_videoOverlayEntry != null) {
+      _hideVideoMenu();
+      return;
+    }
+
+    _videoOverlayEntry = OverlayEntry(
+      builder: (context) => Positioned(
+        width: 200,
+        child: CompositedTransformFollower(
+          link: _videoLayerLink,
+          offset: const Offset(300, 0), // 在右侧显示
+          child: VideoMenu(
+            onVideoCapture: _captureVideo,
+            onGifCapture: () {
+              _hideVideoMenu();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('GIF录制功能待实现')),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    Overlay.of(context).insert(_videoOverlayEntry!);
+    setState(() {
+      _isVideoMenuVisible = true;
+    });
+  }
+
+  /// 隐藏延时菜单
+  void _hideDelayMenu() {
+    _delayOverlayEntry?.remove();
+    _delayOverlayEntry = null;
+    if (mounted) {
+      setState(() {
+        _isDelayMenuVisible = false;
+      });
+    }
+  }
+
+  /// 隐藏视频菜单
+  void _hideVideoMenu() {
+    _videoOverlayEntry?.remove();
+    _videoOverlayEntry = null;
+    if (mounted) {
+      setState(() {
+        _isVideoMenuVisible = false;
+      });
+    }
+  }
+
+  /// 处理延时选择
+  void _handleDelaySelection(Duration delay) {
+    _hideDelayMenu();
+    if (mounted) {
+      final provider = context.read<CaptureModeProvider>();
+      final mode = provider.currentMode;
+      _triggerCapture(mode, delay: delay);
+    }
   }
 
   @override
@@ -142,70 +227,136 @@ class _CapturePageState extends State<CapturePage> {
       focusNode: _focusNode,
       onKeyEvent: _handleKeyEvent,
       child: Scaffold(
-        backgroundColor: Colors.white, // 将透明背景改为白色
-        body: Column(
-          children: [
-            // 使用标准化顶部栏
-            StandardAppBar(
-              backgroundColor: const Color(0xFFF5F5F5), // 浅灰色背景
-              centerTitle: true,
-              forceShowWindowControls:
-                  Platform.isWindows, // 在Windows上强制显示窗口控制按钮
-            ),
+        backgroundColor: Colors.white,
+        body: GestureDetector(
+          onTap: () {
+            _hideDelayMenu();
+            _hideVideoMenu();
+          },
+          child: Column(
+            key: _containerKey,
+            children: [
+              // 使用标准化顶部栏 - 只显示标题和控制按钮
+              StandardAppBar(
+                backgroundColor: Colors.white,
+                centerTitle: true,
+                forceShowWindowControls: true,
+              ),
 
-            // 浅灰色背景的工具栏区域 - 添加 key
-            Container(
-              key: _toolbarContainerKey, // 添加 key 以便测量尺寸
-              color: const Color(0xFFF5F5F5), // 浅灰色背景
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 20.0, vertical: 0.0), // 减小vertical padding为0
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Consumer<CaptureModeProvider>(
-                  builder: (context, provider, child) => Toolbar(
-                    // 连接按钮到 _triggerCapture 或特定方法
-                    onCaptureRegion: () => _triggerCapture(CaptureMode.region),
-                    // 新增的回调
-                    onCaptureRectangle: () =>
-                        _triggerCapture(CaptureMode.rectangle),
-                    onCaptureFullscreen: () =>
-                        _triggerCapture(CaptureMode.fullscreen),
-                    onCaptureWindow: () => _triggerCapture(CaptureMode.window),
-                    // 新增长截图回调
-                    onCaptureLongScreenshot: _captureLongScreenshot,
+              // 主菜单区域
+              Expanded(
+                child: Container(
+                  color: Colors.white,
+                  child: Consumer<CaptureModeProvider>(
+                    builder: (context, provider, child) => ListView(
+                      padding: const EdgeInsets.symmetric(vertical: 10.0),
+                      children: [
+                        // 区域截图
+                        CaptureMenuItem(
+                          icon: PhosphorIcons.squaresFour(
+                              PhosphorIconsStyle.light),
+                          label: 'Capture area',
+                          shortcut: Platform.isMacOS ? '⌘2' : 'Ctrl+2',
+                          onTap: () => _triggerCapture(CaptureMode.region),
+                        ),
 
-                    // 旧/其他回调保持
-                    onCaptureHDScreen: () =>
-                        _triggerCapture(CaptureMode.fullscreen), // Snip 按钮仍触发全屏
-                    onCaptureVideo: _captureVideo,
-                    onDelayCapture: _delayCapture,
-                    onPerformOCR: _performOCR,
-                    onOpenImage: _openImage,
-                    onShowHistory: _showHistory,
+                        // 窗口截图
+                        CaptureMenuItem(
+                          icon: PhosphorIcons.browser(PhosphorIconsStyle.light),
+                          label: 'Window',
+                          shortcut: Platform.isMacOS ? '⌘3' : 'Ctrl+3',
+                          onTap: () => _triggerCapture(CaptureMode.window),
+                        ),
+
+                        // 全屏截图
+                        CaptureMenuItem(
+                          icon: PhosphorIcons.monitorPlay(
+                              PhosphorIconsStyle.light),
+                          label: 'Full Screen',
+                          shortcut: Platform.isMacOS ? '⌘4' : 'Ctrl+4',
+                          onTap: () => _triggerCapture(CaptureMode.fullscreen),
+                        ),
+
+                        // 视频录制
+                        CompositedTransformTarget(
+                          link: _videoLayerLink,
+                          child: CaptureMenuItem(
+                            icon: PhosphorIcons.filmStrip(
+                                PhosphorIconsStyle.light),
+                            label: 'Video & GIF',
+                            showRightArrow: true,
+                            isSelected: _isVideoMenuVisible,
+                            onTap: _showVideoMenu,
+                          ),
+                        ),
+
+                        // 滚动截图
+                        CaptureMenuItem(
+                          icon: PhosphorIcons.arrowsOutLineVertical(
+                              PhosphorIconsStyle.light),
+                          label: 'Scrolling Capture',
+                          onTap: _captureLongScreenshot,
+                        ),
+
+                        // OCR识别
+                        CaptureMenuItem(
+                          icon: PhosphorIcons.textT(PhosphorIconsStyle.light),
+                          label: 'OCR',
+                          onTap: _performOCR,
+                        ),
+
+                        // 延时截图
+                        CompositedTransformTarget(
+                          link: _delayLayerLink,
+                          child: CaptureMenuItem(
+                            icon: PhosphorIcons.clock(PhosphorIconsStyle.light),
+                            label: 'Delay',
+                            showRightArrow: true,
+                            isSelected: _isDelayMenuVisible,
+                            onTap: _showDelayMenu,
+                          ),
+                        ),
+
+                        // 打开图片
+                        CaptureMenuItem(
+                          icon: PhosphorIcons.folderOpen(
+                              PhosphorIconsStyle.light),
+                          label: 'Open',
+                          onTap: _openImage,
+                        ),
+
+                        // 历史记录
+                        CaptureMenuItem(
+                          icon: PhosphorIcons.clockCounterClockwise(
+                              PhosphorIconsStyle.light),
+                          label: 'History',
+                          onTap: _showHistory,
+                        ),
+
+                        // 设置
+                        CaptureMenuItem(
+                          icon: PhosphorIcons.gear(PhosphorIconsStyle.light),
+                          label: 'Setting',
+                          onTap: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('设置功能待实现')),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
 
-            // 内容区域（白色背景）
-            Expanded(
-              child: Container(
-                color: Colors.white,
-                width: double.infinity,
-                child: Center(
-                  child: _isLoadingCapture
-                      ? const CircularProgressIndicator(strokeWidth: 2.0)
-                      : Text(
-                          _shortcutPromptText,
-                          style: TextStyle(
-                            color: Colors.grey[400],
-                            fontSize: 14,
-                          ),
-                        ),
+              // 底部加载指示器（如果正在加载）
+              if (_isLoadingCapture)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10.0),
+                  child: const CircularProgressIndicator(strokeWidth: 2.0),
                 ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -254,8 +405,9 @@ class _CapturePageState extends State<CapturePage> {
     }
   }
 
-  /// 视频录制 (保留提示)
+  /// 视频录制
   Future<void> _captureVideo() async {
+    _hideVideoMenu();
     _logger.i('Video capture action triggered.');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -264,58 +416,7 @@ class _CapturePageState extends State<CapturePage> {
     }
   }
 
-  /// 延时截图
-  Future<void> _delayCapture() async {
-    if (_isLoadingCapture || !mounted) return;
-
-    final selectedDelay = await showDialog<Duration>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Select Delay'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                title: const Text('3 seconds'),
-                onTap: () => Navigator.pop(context, const Duration(seconds: 3)),
-              ),
-              ListTile(
-                title: const Text('5 seconds'),
-                onTap: () => Navigator.pop(context, const Duration(seconds: 5)),
-              ),
-              ListTile(
-                title: const Text('10 seconds'),
-                onTap: () =>
-                    Navigator.pop(context, const Duration(seconds: 10)),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (selectedDelay != null && mounted) {
-      final provider = context.read<CaptureModeProvider>();
-      final mode = provider.currentMode;
-      _logger.d(
-          'Delay capture selected: ${selectedDelay.inSeconds}s for mode $mode');
-
-      // 显示倒计时提示
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'Screenshot will be taken in ${selectedDelay.inSeconds} seconds...'),
-          duration: selectedDelay,
-        ),
-      );
-
-      // 直接调用 triggerCapture，将 delay 传递给 CaptureService 处理
-      await _triggerCapture(mode, delay: selectedDelay);
-    }
-  }
-
-  /// 执行OCR识别 (保留提示)
+  /// 执行OCR识别
   Future<void> _performOCR() async {
     _logger.i('OCR action triggered.');
     if (mounted) {
@@ -325,7 +426,7 @@ class _CapturePageState extends State<CapturePage> {
     }
   }
 
-  /// 打开图片 (保留提示)
+  /// 打开图片
   Future<void> _openImage() async {
     _logger.i('Open image action triggered.');
     if (mounted) {
@@ -335,7 +436,7 @@ class _CapturePageState extends State<CapturePage> {
     }
   }
 
-  /// 显示历史记录 (保留提示)
+  /// 显示历史记录
   Future<void> _showHistory() async {
     _logger.i('Show history action triggered.');
     if (mounted) {
@@ -426,7 +527,7 @@ class _CapturePageState extends State<CapturePage> {
     }
   }
 
-  // Handle keyboard events
+  // 处理键盘事件
   void _handleKeyEvent(KeyEvent event) {
     if (event is KeyDownEvent) {
       final isShiftPressed = HardwareKeyboard.instance.isShiftPressed;
@@ -439,28 +540,25 @@ class _CapturePageState extends State<CapturePage> {
       final provider = context.read<CaptureModeProvider>();
       CaptureMode? targetMode;
 
-      // Rectangle/Region capture shortcut
-      if (isShiftPressed &&
-          (isMetaPressed || isControlPressed) &&
-          event.logicalKey == LogicalKeyboardKey.keyR) {
+      // 快捷键2: 区域截图
+      if ((isMetaPressed || isControlPressed) &&
+          event.logicalKey == LogicalKeyboardKey.digit2) {
         _logger.d('Rectangle/Region capture shortcut triggered');
-        targetMode = CaptureMode.region; // 使用 region 模式
+        targetMode = CaptureMode.region;
       }
-      // Fullscreen shortcut
-      else if (isShiftPressed &&
-          (isMetaPressed || isControlPressed) &&
-          event.logicalKey == LogicalKeyboardKey.keyS) {
-        _logger.d('Fullscreen capture shortcut triggered');
-        targetMode = CaptureMode.fullscreen;
-      }
-      // Window shortcut
-      else if (isShiftPressed &&
-          (isMetaPressed || isControlPressed) &&
-          event.logicalKey == LogicalKeyboardKey.keyW) {
+      // 快捷键3: 窗口截图
+      else if ((isMetaPressed || isControlPressed) &&
+          event.logicalKey == LogicalKeyboardKey.digit3) {
         _logger.d('Window capture shortcut triggered');
         targetMode = CaptureMode.window;
       }
-      // Long screenshot shortcut
+      // 快捷键4: 全屏截图
+      else if ((isMetaPressed || isControlPressed) &&
+          event.logicalKey == LogicalKeyboardKey.digit4) {
+        _logger.d('Fullscreen capture shortcut triggered');
+        targetMode = CaptureMode.fullscreen;
+      }
+      // 长截图快捷键
       else if (isShiftPressed &&
           (isMetaPressed || isControlPressed) &&
           event.logicalKey == LogicalKeyboardKey.keyJ) {
@@ -475,10 +573,11 @@ class _CapturePageState extends State<CapturePage> {
         _triggerCapture(targetMode); // 直接触发
       }
 
-      // ESC key listener
+      // ESC key - 隐藏所有菜单
       if (event.logicalKey == LogicalKeyboardKey.escape) {
         _logger.d('ESC key pressed');
-        // TODO: Add cancellation logic if applicable (e.g., close preview)
+        _hideDelayMenu();
+        _hideVideoMenu();
       }
     }
   }
