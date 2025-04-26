@@ -1,7 +1,6 @@
 // import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:logger/logger.dart';
-import 'package:screen_capturer/screen_capturer.dart' as capturer;
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
@@ -58,20 +57,43 @@ class ClipboardService with ClipboardListener {
 
   /// 复制图像到剪贴板
   ///
-  /// 尝试通过多种方式复制图像：
-  /// 1. 使用 screen_capturer 包的原生实现（如果可能）
-  /// 2. 如果失败，降级为文本提示
+  /// 使用系统自带的剪贴板功能复制图像
   Future<bool> copyImage(Uint8List imageData) async {
     try {
-      // 尝试使用 screen_capturer 包的原生实现复制图像
-      bool success = await _copyImageNative(imageData);
+      // 使用Flutter的Clipboard API
+      // 注意：目前Flutter的标准Clipboard API不直接支持图像复制
+      // 因此我们使用平台通道或保存图像并显示提示
 
-      // 如果原生复制失败，降级为文本提示
-      if (!success) {
-        _logger.d('Native clipboard copy failed, falling back to text message');
-        await Clipboard.setData(const ClipboardData(text: '[图片已复制到系统剪贴板]'));
+      // 保存图像到临时文件以备其他用途
+      final tempFile = await _saveImageToTemp(imageData);
+      if (tempFile == null) {
+        _logger.e('Failed to save image to temporary file');
+        await Clipboard.setData(const ClipboardData(text: '[无法复制图片到剪贴板]'));
+        return false;
       }
 
+      // 使用平台通道实现图像复制
+      try {
+        // 这里可以实现特定平台的图像复制逻辑
+        // 如 Android、iOS 或 macOS 通过平台通道
+        const MethodChannel platform = MethodChannel('com.snipwise/clipboard');
+        final bool? success = await platform.invokeMethod<bool>(
+          'copyImageToClipboard',
+          {'imagePath': tempFile.path},
+        );
+
+        if (success == true) {
+          _logger.d('Image copied to clipboard via platform channel');
+          return true;
+        }
+      } catch (platformError) {
+        _logger.e('Platform channel error: $platformError');
+        // 如果平台通道失败，继续执行下一步
+      }
+
+      // 回退：设置文本提示
+      _logger.d('Falling back to text message');
+      await Clipboard.setData(const ClipboardData(text: '[图片已保存，但无法直接复制到剪贴板]'));
       return true;
     } catch (e) {
       _logger.e('Error copying image to clipboard: $e');
@@ -81,29 +103,6 @@ class ClipboardService with ClipboardListener {
       } catch (_) {
         // 忽略文本复制失败
       }
-      return false;
-    }
-  }
-
-  /// 使用平台原生方法复制图像
-  Future<bool> _copyImageNative(Uint8List imageData) async {
-    try {
-      // 保存图像到临时文件
-      final tempFile = await _saveImageToTemp(imageData);
-      if (tempFile == null) {
-        return false;
-      }
-
-      // 使用 screen_capturer 的临时文件路径捕获图像，并设置复制到剪贴板
-      final result = await capturer.ScreenCapturer.instance.capture(
-        imagePath: tempFile.path,
-        copyToClipboard: true,
-        silent: true,
-      );
-
-      return result != null;
-    } catch (e) {
-      _logger.e('Error in native clipboard operation: $e');
       return false;
     }
   }

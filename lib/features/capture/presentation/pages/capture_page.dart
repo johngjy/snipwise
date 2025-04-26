@@ -1,17 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Import for RawKeyboardListener
 import 'package:provider/provider.dart';
 import 'package:logger/logger.dart';
 import '../widgets/toolbar.dart';
-import '../widgets/window_controls.dart';
 import '../providers/capture_mode_provider.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/services/window_service.dart';
-import '../../services/capture_service.dart';
-import '../../data/models/capture_result.dart';
-import '../../../hires_capture/presentation/providers/hires_capture_provider.dart';
 import '../../data/models/capture_mode.dart';
-import '../widgets/capture_toolbar.dart';
+// import '../../../../core/services/window_service.dart'; // Unused import
+import '../../../../core/widgets/standard_app_bar.dart'; // 导入标准化顶部栏
+import '../../services/capture_service.dart';
+// import '../../data/models/capture_result.dart'; // Unused import - REMOVE
+// import '../../../hires_capture/presentation/providers/hires_capture_provider.dart'; // Unused import - REMOVE
+// import 'package:path/path.dart' as path; // Unused import - REMOVE
+// import 'package:path_provider/path_provider.dart'; // Unused import - REMOVE
 
 /// 截图选择页面 - 打开软件时显示的主页面
 class CapturePage extends StatefulWidget {
@@ -28,6 +29,9 @@ class _CapturePageState extends State<CapturePage> {
   // 日志记录器
   final _logger = Logger();
 
+  // FocusNode for keyboard shortcuts
+  final FocusNode _focusNode = FocusNode();
+
   /// 获取基于操作系统的快捷键提示文本
   String get _shortcutPromptText {
     if (Platform.isMacOS) {
@@ -43,106 +47,90 @@ class _CapturePageState extends State<CapturePage> {
   @override
   void initState() {
     super.initState();
-    // 注册快捷键
-    _registerShortcuts();
+    // Request focus for keyboard listener
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        // Check if mounted before requesting focus
+        FocusScope.of(context).requestFocus(_focusNode);
+      }
+    });
   }
 
-  /// 注册键盘快捷键
-  void _registerShortcuts() {
-    // 注册快捷键逻辑
-    // 这里可以添加全局热键监听的实现
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // 设置固定尺寸为1000w x 180h
-    return SizedBox(
-      width: 1000,
-      height: 180,
+    // 使用 KeyboardListener 监听全局快捷键
+    return KeyboardListener(
+      focusNode: _focusNode,
+      onKeyEvent: _handleKeyEvent,
       child: Scaffold(
-        backgroundColor: Colors.white,
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(40), // 减小AppBar高度
-          child: AppBar(
-            backgroundColor: Colors.white,
-            automaticallyImplyLeading: false, // 不显示默认的返回按钮
-            title: const Padding(
-              padding: EdgeInsets.only(top: 5.0), // 减少顶部padding
-              child: Text(
-                'SNIPWISE',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.primaryText,
-                  letterSpacing: 0.5,
-                  height: 1.0, // 减小行高
+        backgroundColor: Colors.white, // 将透明背景改为白色
+        body: Column(
+          children: [
+            // 使用标准化顶部栏
+            StandardAppBar(
+              backgroundColor: const Color(0xFFF5F5F5), // 浅灰色背景
+              centerTitle: true,
+              forceShowWindowControls:
+                  Platform.isWindows, // 在Windows上强制显示窗口控制按钮
+            ),
+
+            // 浅灰色背景的工具栏区域
+            Container(
+              color: const Color(0xFFF5F5F5), // 浅灰色背景
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 20.0, vertical: 2.0), // 进一步减小vertical padding
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Consumer<CaptureModeProvider>(
+                  builder: (context, provider, child) => Toolbar(
+                    // 连接按钮到 _triggerCapture 或特定方法
+                    onCaptureRegion: () => _triggerCapture(CaptureMode.region),
+                    // 新增的回调
+                    onCaptureRectangle: () =>
+                        _triggerCapture(CaptureMode.rectangle),
+                    onCaptureFullscreen: () =>
+                        _triggerCapture(CaptureMode.fullscreen),
+                    onCaptureWindow: () => _triggerCapture(CaptureMode.window),
+
+                    // 旧/其他回调保持
+                    onCaptureHDScreen: () =>
+                        _triggerCapture(CaptureMode.fullscreen), // Snip 按钮仍触发全屏
+                    onCaptureVideo: _captureVideo,
+                    onDelayCapture: _delayCapture,
+                    onPerformOCR: _performOCR,
+                    onOpenImage: _openImage,
+                    onShowHistory: _showHistory,
+                  ),
                 ),
               ),
             ),
-            centerTitle: false,
-            elevation: 0.5,
-            actions: [
-              // 使用提取的窗口控制组件
-              WindowControls(
-                onMinimize: () => WindowService.instance.minimizeWindow(),
-                onClose: () => WindowService.instance.closeWindow(),
-              ),
-            ],
-          ),
-        ),
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 使用提取的工具栏组件
-            CaptureToolbar(
-              onCaptureRegion: () =>
-                  _startCapture(context, CaptureMode.rectangle),
-              onCaptureHDScreen: () =>
-                  _startCapture(context, CaptureMode.fullscreen),
-              onCaptureVideo: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('视频录制功能尚未实现')),
-                );
-              },
-              onCaptureWindow: () => _startCapture(context, CaptureMode.window),
-              onDelayCapture: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('延时截图将在 3 秒后进行')),
-                );
-                _startCapture(context, CaptureMode.fullscreen,
-                    delay: const Duration(seconds: 3));
-              },
-            ),
 
-            // 主内容区
+            // 内容区域（白色背景）
             Expanded(
-              child: Stack(
-                children: [
-                  // 提示文本居中
-                  Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _isLoadingCapture
-                            ? const CircularProgressIndicator()
-                            : Text(
-                                _shortcutPromptText,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                        const SizedBox(height: 20),
-                        ElevatedButton(
-                          onPressed: _isLoadingCapture
-                              ? null
-                              : _testScreenCapturerRegion,
-                          child: const Text('测试系统区域截图功能'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+              child: Container(
+                color: Colors.white,
+                width: double.infinity,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // 快捷键提示文本
+                    _isLoadingCapture
+                        ? const CircularProgressIndicator(strokeWidth: 2.0)
+                        : Text(
+                            _shortcutPromptText,
+                            style: TextStyle(
+                              color: Colors.grey[400],
+                              fontSize: 14,
+                            ),
+                          ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -151,41 +139,41 @@ class _CapturePageState extends State<CapturePage> {
     );
   }
 
-  /// 开始截图
-  Future<void> _startCapture(BuildContext context, CaptureMode mode,
-      {Duration? delay}) async {
-    if (_isLoadingCapture) return;
+  /// 统一触发截图流程
+  Future<void> _triggerCapture(CaptureMode mode, {Duration? delay}) async {
+    _logger.i('>>> _triggerCapture called for mode: $mode, delay: $delay');
+    if (_isLoadingCapture) {
+      _logger.w('Capture already in progress, ignoring trigger for $mode.');
+      return;
+    }
+
+    if (!mounted) {
+      _logger.w('Context unmounted, cannot trigger capture for $mode.');
+      return;
+    }
 
     setState(() {
       _isLoadingCapture = true;
     });
 
+    _logger.i('Triggering capture for mode: $mode with delay: $delay');
+
     try {
-      _logger.d('开始截图，模式: $mode, 延时: $delay');
-
-      // 显示加载指示器
-      if (delay != null) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('截图将在 ${delay.inSeconds} 秒后开始...')),
-        );
-      }
-
-      // 执行截图
-      final result = await CaptureService.instance.capture(mode, delay: delay);
-
-      // 处理截图结果
-      if (context.mounted) {
-        await CaptureService.instance.handleCaptureResult(context, result);
-      }
-    } catch (e) {
-      _logger.e('截图过程中出错', error: e);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('截图失败: $e')),
-        );
+      // 调用 CaptureService 执行截图并直接导航到编辑器
+      await CaptureService.instance.captureAndNavigateToEditor(context, mode);
+      _logger.i('Capture completed and navigated to editor for mode: $mode');
+    } catch (e, stackTrace) {
+      _logger.e('Error during _triggerCapture for mode $mode',
+          error: e, stackTrace: stackTrace);
+      // CaptureService 内部已经处理错误显示，这里只记录
+      if (mounted) {
+        // 可以选择在这里显示通用错误提示
+        // ScaffoldMessenger.of(context).showSnackBar(
+        //   SnackBar(content: Text('截图时发生未知错误: $e')),
+        // );
       }
     } finally {
+      // 确保在完成后重置加载状态
       if (mounted) {
         setState(() {
           _isLoadingCapture = false;
@@ -194,103 +182,20 @@ class _CapturePageState extends State<CapturePage> {
     }
   }
 
-  /// 高清屏幕截图
-  Future<void> _captureHDScreen() async {
-    if (_isLoadingCapture) return;
-
-    setState(() {
-      _isLoadingCapture = true;
-    });
-
-    try {
-      // 获取当前选择的截图模式
-      final provider = context.read<CaptureModeProvider>();
-      final mode = provider.currentMode;
-      final fixedSize = provider.fixedSize;
-
-      // 获取高清截图设置
-      final hiResProvider = context.read<HiResCapureProvider>();
-
-      // 执行普通截图
-      final result = await CaptureService.instance.capture(
-        mode,
-        fixedSize: fixedSize,
-      );
-
-      // 检查组件是否仍然挂载
-      if (!mounted) return;
-
-      if (result?.imageBytes != null) {
-        // 将截图结果设置为高清截图的源图像
-        final image = await decodeImageFromList(result!.imageBytes!);
-
-        // 检查组件是否仍然挂载
-        if (!mounted) return;
-
-        await hiResProvider.setSourceImage(image);
-
-        // 检查组件是否仍然挂载
-        if (!mounted) return;
-
-        if (result.region != null) {
-          hiResProvider.setSelectedRegion(Rect.fromLTWH(
-            result.region!.x,
-            result.region!.y,
-            result.region!.width,
-            result.region!.height,
-          ));
-        }
-
-        // 执行高清截图处理
-        final hiResImageBytes = await hiResProvider.captureHighRes();
-
-        // 检查组件是否仍然挂载
-        if (!mounted) return;
-
-        if (hiResImageBytes != null) {
-          // 处理高清截图结果
-          await CaptureService.instance.handleCaptureResult(
-            context,
-            CaptureResult(
-              imageBytes: hiResImageBytes,
-              imagePath: result.imagePath,
-              region: result.region,
-            ),
-          );
-
-          // 最终检查
-          if (!mounted) return;
-
-          _logger.d('高清截图处理完成');
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('高清截图失败: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingCapture = false;
-        });
-      }
-    }
-  }
-
-  /// 视频录制
+  /// 视频录制 (保留提示)
   Future<void> _captureVideo() async {
-    // 实现视频录制
-  }
-
-  /// 窗口截图
-  Future<void> _captureWindow() async {
-    // 实现窗口截图
+    _logger.i('Video capture action triggered.');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('视频录制功能待实现')),
+      );
+    }
   }
 
   /// 延时截图
   Future<void> _delayCapture() async {
+    if (_isLoadingCapture || !mounted) return;
+
     final selectedDelay = await showDialog<Duration>(
       context: context,
       builder: (BuildContext context) {
@@ -318,14 +223,11 @@ class _CapturePageState extends State<CapturePage> {
       },
     );
 
-    if (selectedDelay != null) {
-      // 检查组件是否仍然挂载
-      if (!mounted) return;
-
-      // 获取当前选择的截图模式
+    if (selectedDelay != null && mounted) {
       final provider = context.read<CaptureModeProvider>();
       final mode = provider.currentMode;
-      final fixedSize = provider.fixedSize;
+      _logger.d(
+          'Delay capture selected: ${selectedDelay.inSeconds}s for mode $mode');
 
       // 显示倒计时提示
       ScaffoldMessenger.of(context).showSnackBar(
@@ -336,74 +238,86 @@ class _CapturePageState extends State<CapturePage> {
         ),
       );
 
-      // 执行延时截图
-      final result = await CaptureService.instance.capture(
-        mode,
-        fixedSize: fixedSize,
-        delay: selectedDelay,
-      );
-
-      // 检查组件是否仍然挂载
-      if (!mounted) return;
-
-      // 处理截图结果
-      await CaptureService.instance.handleCaptureResult(context, result);
-
-      // 检查组件是否仍然挂载
-      if (!mounted) return;
-
-      _logger.d('延时截图处理完成');
+      // 直接调用 triggerCapture，将 delay 传递给 CaptureService 处理
+      await _triggerCapture(mode, delay: selectedDelay);
     }
   }
 
-  /// 执行OCR识别
+  /// 执行OCR识别 (保留提示)
   Future<void> _performOCR() async {
-    // 实现OCR识别
+    _logger.i('OCR action triggered.');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('OCR识别功能待实现')),
+      );
+    }
   }
 
-  /// 打开图片
+  /// 打开图片 (保留提示)
   Future<void> _openImage() async {
-    // 实现打开图片
+    _logger.i('Open image action triggered.');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('打开图片功能待实现')),
+      );
+    }
   }
 
-  /// 显示历史记录
+  /// 显示历史记录 (保留提示)
   Future<void> _showHistory() async {
-    // 实现显示历史记录
+    _logger.i('Show history action triggered.');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('显示历史记录功能待实现')),
+      );
+    }
   }
 
-  /// 测试系统区域截图功能
-  Future<void> _testScreenCapturerRegion() async {
-    setState(() {
-      _isLoadingCapture = true;
-    });
+  // Handle keyboard events
+  void _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final isShiftPressed = HardwareKeyboard.instance.isShiftPressed;
+      final isMetaPressed =
+          HardwareKeyboard.instance.isMetaPressed; // Command on macOS
+      final isControlPressed =
+          HardwareKeyboard.instance.isControlPressed; // Control on Win/Linux
 
-    try {
-      final success = await CaptureService.instance.testScreenCapturerRegion();
+      if (!mounted) return; // Check mount status
+      final provider = context.read<CaptureModeProvider>();
+      CaptureMode? targetMode;
 
-      if (!mounted) return;
+      // Rectangle/Region capture shortcut
+      if (isShiftPressed &&
+          (isMetaPressed || isControlPressed) &&
+          event.logicalKey == LogicalKeyboardKey.keyR) {
+        _logger.d('Rectangle/Region capture shortcut triggered');
+        targetMode = CaptureMode.region; // 使用 region 模式
+      }
+      // Fullscreen shortcut
+      else if (isShiftPressed &&
+          (isMetaPressed || isControlPressed) &&
+          event.logicalKey == LogicalKeyboardKey.keyS) {
+        _logger.d('Fullscreen capture shortcut triggered');
+        targetMode = CaptureMode.fullscreen;
+      }
+      // Window shortcut
+      else if (isShiftPressed &&
+          (isMetaPressed || isControlPressed) &&
+          event.logicalKey == LogicalKeyboardKey.keyW) {
+        _logger.d('Window capture shortcut triggered');
+        targetMode = CaptureMode.window;
+      }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success ? '测试成功：系统区域截图功能正常工作！' : '测试失败：系统区域截图功能不可用。',
-          ),
-          backgroundColor: success ? Colors.green : Colors.red,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
+      // 如果匹配到截图快捷键，则设置模式并触发截图
+      if (targetMode != null) {
+        provider.setMode(targetMode);
+        _triggerCapture(targetMode); // 直接触发
+      }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('测试出错: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingCapture = false;
-        });
+      // ESC key listener
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        _logger.d('ESC key pressed');
+        // TODO: Add cancellation logic if applicable (e.g., close preview)
       }
     }
   }

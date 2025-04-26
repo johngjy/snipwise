@@ -8,6 +8,7 @@ enum CaptureMode {
   fullscreen, // 全屏截图
   fixedSize, // 固定尺寸
   scrolling, // 滚动截图
+  region, // 区域截图
 }
 
 /// 截图模式配置
@@ -71,6 +72,13 @@ class CaptureModeConfigs {
       label: 'Scrolling',
       description: 'Capture scrolling content',
       shortcut: '⌘ + Shift + L',
+    ),
+    CaptureMode.region: CaptureModeConfig(
+      mode: CaptureMode.region,
+      icon: Icons.screenshot_monitor,
+      label: 'Region',
+      description: 'Capture a specific region',
+      shortcut: '⌘ + Shift + G',
     ),
   };
 }

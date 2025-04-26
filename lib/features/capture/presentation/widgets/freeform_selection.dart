@@ -117,14 +117,14 @@ class _FreeformSelectionState extends State<FreeformSelection> {
                     return Center(
                       child: Text(
                         '无法加载背景图像',
-                        style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                        style: TextStyle(color: Colors.white.withAlpha(178)),
                       ),
                     );
                   },
                 ),
               ),
               Positioned.fill(
-                child: Container(color: Colors.black.withOpacity(0.3)),
+                child: Container(color: Colors.black.withAlpha(77)),
               ),
               if (_currentPath != null)
                 Positioned.fill(
@@ -146,7 +146,7 @@ class _FreeformSelectionState extends State<FreeformSelection> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
+                      color: Colors.black.withAlpha(153),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: const Text(
@@ -186,7 +186,7 @@ class _FreeformSelectionPainter extends CustomPainter {
 
     if (boundingBox != null) {
       final boundsPaint = Paint()
-        ..color = Colors.red.withOpacity(0.5)
+        ..color = Colors.red.withAlpha(128)
         ..strokeWidth = 1.0
         ..style = PaintingStyle.stroke;
       canvas.drawRect(boundingBox!, boundsPaint);

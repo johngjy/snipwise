@@ -27,24 +27,11 @@ class RectangleSelection extends StatefulWidget {
 class _RectangleSelectionState extends State<RectangleSelection> {
   Offset? _start;
   Offset? _current;
-  bool _isImageLoaded = false;
-  Size? _imageSize;
 
   @override
   void initState() {
     super.initState();
     developer.log('RectangleSelection 初始化', name: 'RectangleSelection');
-    // 添加延迟操作，等待构建完成后检测图像是否加载
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _detectImageLoaded();
-    });
-  }
-
-  void _detectImageLoaded() {
-    developer.log('检测图像加载状态', name: 'RectangleSelection');
-    setState(() {
-      _isImageLoaded = true;
-    });
   }
 
   @override
@@ -110,12 +97,8 @@ class _RectangleSelectionState extends State<RectangleSelection> {
 
               // 半透明遮罩，始终显示
               Positioned.fill(
-                child: ColorFiltered(
-                  colorFilter: ColorFilter.mode(
-                    Colors.black.withOpacity(0.3),
-                    BlendMode.srcOver,
-                  ),
-                  child: Container(color: Colors.transparent),
+                child: Container(
+                  color: Colors.black.withAlpha((255 * 0.3).round()),
                 ),
               ),
 
@@ -141,7 +124,7 @@ class _RectangleSelectionState extends State<RectangleSelection> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
+                      color: Colors.black.withAlpha((255 * 0.6).round()),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: const Text(
@@ -181,7 +164,6 @@ class _SelectionPainter extends CustomPainter {
     // 清除选择区域的遮罩
     canvas.save();
     canvas.clipRect(selectionRect);
-    canvas.drawRect(selectionRect, Paint()..color = Colors.transparent);
     canvas.restore();
 
     // 绘制选择区域
@@ -197,7 +179,7 @@ class _SelectionPainter extends CustomPainter {
     );
 
     // 绘制四个角的标记
-    final cornerSize = 8.0;
+    const cornerSize = 8.0;
     final cornerPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
@@ -228,10 +210,10 @@ class _SelectionPainter extends CustomPainter {
         selectionRect.bottomRight.translate(0, -cornerSize), cornerPaint);
 
     // 显示尺寸信息
-    final textStyle = TextStyle(
+    const textStyle = TextStyle(
       color: Colors.white,
       fontSize: 12,
-      backgroundColor: Colors.black.withOpacity(0.6),
+      backgroundColor: Color(0x99000000),
     );
     final textSpan = TextSpan(
       text: '${selectionRect.width.toInt()} x ${selectionRect.height.toInt()}',
