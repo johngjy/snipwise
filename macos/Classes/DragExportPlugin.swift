@@ -1,31 +1,33 @@
 import Cocoa
 import FlutterMacOS
 
-// MARK: - 定义拖拽插件类
-
-/// 图像拖拽导出插件类 - 直接在MainFlutterWindow.swift中定义以避免导入问题
-class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
+/// 图像拖拽导出插件
+public class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
+    
     /// 临时文件路径
     private var tempFilePath: String?
     
     /// 注册插件
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "snipwise_drag_export", 
-                                          binaryMessenger: registrar.messenger)
+                                         binaryMessenger: registrar.messenger)
+                                         
         let instance = DragExportPlugin()
         registrar.addMethodCallDelegate(instance, channel: channel)
+        
         NSLog("DragExportPlugin: 插件注册成功")
     }
     
     /// 处理Flutter方法调用
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        NSLog("DragExportPlugin: 收到方法调用 \(call.method) 参数: \(String(describing: call.arguments))")
+        NSLog("DragExportPlugin: 收到方法调用 \(call.method)")
         
         if call.method == "startImageDrag" {
             guard let args = call.arguments as? [String: Any],
                   let filePath = args["filePath"] as? String,
                   let originX = args["originX"] as? Double,
                   let originY = args["originY"] as? Double else {
+                      
                 NSLog("DragExportPlugin: 无效参数")
                 result(FlutterError(code: "INVALID_ARGS", 
                                    message: "Invalid arguments", 
@@ -33,7 +35,6 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
                 return
             }
             
-            NSLog("DragExportPlugin: 开始拖拽处理，文件路径: \(filePath), 坐标: (\(originX), \(originY))")
             startDrag(filePath: filePath, originX: originX, originY: originY, result: result)
         } else {
             NSLog("DragExportPlugin: 未实现的方法 \(call.method)")
@@ -45,7 +46,6 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
     private func startDrag(filePath: String, originX: Double, originY: Double, result: @escaping FlutterResult) {
         self.tempFilePath = filePath
         
-        NSLog("DragExportPlugin: 检查文件: \(filePath)")
         guard FileManager.default.fileExists(atPath: filePath) else {
             NSLog("DragExportPlugin: 文件不存在 \(filePath)")
             result(FlutterError(code: "FILE_NOT_FOUND", 
@@ -54,7 +54,6 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
             return
         }
         
-        NSLog("DragExportPlugin: 加载图像")
         guard let image = NSImage(contentsOfFile: filePath) else {
             NSLog("DragExportPlugin: 无法加载图像 \(filePath)")
             result(FlutterError(code: "INVALID_IMAGE", 
@@ -63,7 +62,6 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
             return
         }
         
-        NSLog("DragExportPlugin: 获取窗口")
         guard let window = NSApplication.shared.mainWindow,
               let contentView = window.contentView else {
             NSLog("DragExportPlugin: 找不到主窗口")
@@ -74,7 +72,6 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
         }
         
         // 设置拖拽数据
-        NSLog("DragExportPlugin: 设置拖拽数据")
         let pasteboardItem = NSPasteboardItem()
         pasteboardItem.setString(filePath, forType: .fileURL)
         
@@ -83,11 +80,9 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
                                      contents: image)
         
         // 坐标转换
-        NSLog("DragExportPlugin: 转换坐标 (\(originX), \(originY))")
         let windowPoint = contentView.convert(NSPoint(x: originX, 
                                                     y: window.frame.height - originY), 
                                             from: nil)
-        NSLog("DragExportPlugin: 窗口坐标 (\(windowPoint.x), \(windowPoint.y))")
         
         // 创建鼠标事件
         guard let mouseEvent = NSEvent.mouseEvent(with: .leftMouseDown,
@@ -107,7 +102,6 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
         }
         
         // 开始拖拽会话
-        NSLog("DragExportPlugin: 开始拖拽会话")
         _ = contentView.beginDraggingSession(with: [draggingItem], 
                                             event: mouseEvent, 
                                             source: self)
@@ -119,16 +113,11 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
     // MARK: - NSDraggingSource 协议实现
     
     public func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        NSLog("DragExportPlugin: draggingSession sourceOperationMaskFor")
         return context == .outsideApplication ? .copy : .copy
     }
     
     public func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        NSLog("DragExportPlugin: 拖拽会话结束")
-        guard let filePath = tempFilePath else { 
-            NSLog("DragExportPlugin: 没有临时文件需要清理")
-            return 
-        }
+        guard let filePath = tempFilePath else { return }
         
         do {
             try FileManager.default.removeItem(atPath: filePath)
@@ -139,25 +128,4 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
         
         tempFilePath = nil
     }
-}
-
-// MARK: - 主窗口类
-
-class MainFlutterWindow: NSWindow {
-  override func awakeFromNib() {
-    let flutterViewController = FlutterViewController()
-    let windowFrame = self.frame
-    self.contentViewController = flutterViewController
-    self.setFrame(windowFrame, display: true)
-
-    // 注册标准插件
-    RegisterGeneratedPlugins(registry: flutterViewController)
-    
-    // 手动注册拖拽导出插件
-    let registrar = flutterViewController.registrar(forPlugin: "DragExportPlugin")
-    DragExportPlugin.register(with: registrar)
-    NSLog("DragExportPlugin已手动注册")
-
-    super.awakeFromNib()
-  }
-}
+} 

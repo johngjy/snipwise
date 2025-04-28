@@ -18,10 +18,9 @@ import 'package:window_manager/window_manager.dart';
 import 'dart:math' as math;
 import '../../../capture/services/capture_service.dart';
 import '../../../capture/data/models/capture_mode.dart';
-// 导入拖拽导出组件
-import '../../../../src/features/drag_export/draggable_export_button.dart';
-// 导入拖拽导出服务
-import '../../../../src/features/drag_export/drag_export_service.dart';
+import '../widgets/image_viewer.dart';
+import '../widgets/editor_status_bar.dart';
+import '../widgets/editor_toolbar.dart';
 
 /// 图片编辑页面 - 截图完成后的编辑界面
 class EditorPage extends StatefulWidget {
@@ -60,7 +59,6 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
   Uint8List? _imageData;
   ui.Image? _imageAsUiImage;
   Size? _imageSize;
-  Size? _logicalImageSize; // Keep this one for calculations
   bool _isLoading = true;
   double _zoomLevel = 1.0;
   double _capturedScale = 1.0;
@@ -184,7 +182,7 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       final double maxWidth = screenSize.width * 0.9;
       final double maxHeight = screenSize.height * 0.9;
       _logger.d(
-        'Window constraints: Min=${minWidth}x$minHeight, Max=${maxWidth.toStringAsFixed(2)}x${maxHeight.toStringAsFixed(2)}',
+        'Window constraints: Min=${minWidth}x$minHeight, Max=$maxWidth.toStringAsFixed(2)x$maxHeight.toStringAsFixed(2)',
       );
 
       // 3. Calculate Base Size (Image + UI)
@@ -242,7 +240,7 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       // 8. Resize Window
       await WindowService.instance.resizeWindow(Size(finalWidth, finalHeight));
       await windowManager.center();
-      _logger.d('Window resize requested to ${finalWidth}x${finalHeight}');
+      _logger.d('Window resize requested to $finalWidth x $finalHeight');
 
       // 9. Set Initial Zoom (after potential resize)
       double initialZoom;
@@ -328,7 +326,7 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     }
 
     _logger.d(
-      'Calculated Fit Zoom: available=${availableWidth}x$availableHeight, image=${imageWidth}x$imageHeight, scale=$scale',
+      'Calculated Fit Zoom: available=$availableWidth x $availableHeight, image=$imageWidth x $imageHeight, scale=$scale',
     );
     // 添加一个小边距，避免完全贴边
     return scale * 0.98;
@@ -464,13 +462,12 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       _logger.e('Error copying image to clipboard: $e');
       success = false;
     } finally {
-      if (!mounted) {
-        // Don't return from finally
-        return;
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(
+            SnackBar(content: Text(success ? '图片已复制到剪贴板' : '复制图片失败')));
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(success ? '图片已复制到剪贴板' : '复制图片失败')));
     }
   }
 
@@ -688,628 +685,98 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
-    final bool isMacOS = Platform.isMacOS;
-    Size viewSize = MediaQuery.of(context).size;
-    double availableHeight = viewSize.height;
-    double availableWidth = viewSize.width;
-
     return Scaffold(
       backgroundColor: const Color(0xFFEEEEEE), // 浅灰背景
       body: Column(
         children: [
           // 工具栏 - 新设计 (图2样式)
-          Container(
-            color: const Color(0xFFE0E0E0), // 灰色背景
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 4,
-            ), // 设置垂直padding为4
-            child: Row(
-              children: [
-                // macOS系统左侧预留空间
-                if (isMacOS) SizedBox(width: 50),
-
-                // New按钮 - 单独放在工具容器左侧
-                CompositedTransformTarget(
-                  link: _newButtonLayerLink,
-                  child: MouseRegion(
-                    onEnter: (_) => _showNewButtonMenu(),
-                    onExit: (_) => _startNewButtonHideTimer(),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 3,
-                      ),
-                      child: InkWell(
-                        onTap: () {
-                          _showSaveConfirmationDialog();
-                        },
-                        borderRadius: BorderRadius.circular(6),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              PhosphorIcons.plus(PhosphorIconsStyle.light),
-                              size: 18,
-                              color: Colors.grey[700],
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'New',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[800],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(width: 12),
-
-                // 工具容器 - 包含所有编辑工具
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 0,
-                    ),
-                    child: Row(
-                      children: [
-                        // 编辑工具按钮 (通常应该从EditingToolbar提取或修改)
-                        _buildToolButton(
-                          icon: PhosphorIcons.chatCircleText(
-                            PhosphorIconsStyle.light,
-                          ),
-                          isSelected: _selectedToolString == 'callout',
-                          onTap: () => _selectTool('callout'),
-                        ),
-                        _buildToolButton(
-                          icon: PhosphorIcons.square(PhosphorIconsStyle.light),
-                          isSelected: _selectedToolString == 'rect',
-                          onTap: () => _selectTool('rect'),
-                        ),
-                        _buildToolButton(
-                          icon: PhosphorIcons.ruler(PhosphorIconsStyle.light),
-                          isSelected: _selectedToolString == 'measure',
-                          onTap: () => _selectTool('measure'),
-                        ),
-                        _buildToolButton(
-                          icon: PhosphorIcons.circleHalf(
-                            PhosphorIconsStyle.light,
-                          ),
-                          isSelected: _selectedToolString == 'graymask',
-                          onTap: () => _selectTool('graymask'),
-                        ),
-                        _buildToolButton(
-                          icon: PhosphorIcons.highlighterCircle(
-                            PhosphorIconsStyle.light,
-                          ),
-                          isSelected: _selectedToolString == 'highlight',
-                          onTap: () => _selectTool('highlight'),
-                        ),
-                        _buildToolButton(
-                          icon: PhosphorIcons.magnifyingGlass(
-                            PhosphorIconsStyle.light,
-                          ),
-                          isSelected: _selectedToolString == 'magnifier',
-                          onTap: () => _selectTool('magnifier'),
-                        ),
-                        _buildToolButton(
-                          icon: PhosphorIcons.textT(PhosphorIconsStyle.light),
-                          isSelected: _selectedToolString == 'ocr',
-                          onTap: () => _selectTool('ocr'),
-                        ),
-                        _buildToolButton(
-                          icon: PhosphorIcons.eraser(PhosphorIconsStyle.light),
-                          isSelected: _selectedToolString == 'rubber',
-                          onTap: () => _selectTool('rubber'),
-                        ),
-
-                        // 分隔线
-                        Container(
-                          width: 1,
-                          height: 20,
-                          margin: const EdgeInsets.symmetric(horizontal: 6),
-                          color: Colors.grey[300],
-                        ),
-
-                        // 动作按钮
-                        _buildToolButton(
-                          icon: PhosphorIcons.arrowCounterClockwise(
-                            PhosphorIconsStyle.light,
-                          ),
-                          isSelected: false,
-                          onTap: _handleUndo,
-                        ),
-                        _buildToolButton(
-                          icon: PhosphorIcons.arrowClockwise(
-                            PhosphorIconsStyle.light,
-                          ),
-                          isSelected: false,
-                          onTap: _handleRedo,
-                        ),
-                        _buildToolButton(
-                          icon: PhosphorIcons.magnifyingGlassPlus(
-                            PhosphorIconsStyle.light,
-                          ),
-                          isSelected: false,
-                          onTap: _handleZoom,
-                          key: _zoomButtonKey,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(width: 12),
-
-                // 保存和复制按钮容器 - 修改为透明背景
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildToolButton(
-                      icon: PhosphorIcons.floppyDisk(PhosphorIconsStyle.light),
-                      isSelected: false,
-                      onTap: _saveImage,
-                      color: Colors.black,
-                    ),
-                    _buildToolButton(
-                      icon: PhosphorIcons.copy(PhosphorIconsStyle.light),
-                      isSelected: false,
-                      onTap: _copyToClipboard,
-                      color: Colors.black,
-                    ),
-                  ],
-                ),
-              ],
-            ),
+          EditorToolbar(
+            newButtonLayerLink: _newButtonLayerLink,
+            zoomButtonKey: _zoomButtonKey,
+            onShowNewButtonMenu: _showNewButtonMenu,
+            onHideNewButtonMenu: _startNewButtonHideTimer,
+            onShowSaveConfirmation: _showSaveConfirmationDialog,
+            onSelectTool: _selectTool,
+            selectedTool: _selectedToolString,
+            onUndo: _handleUndo,
+            onRedo: _handleRedo,
+            onZoom: _handleZoom,
+            onSaveImage: _saveImage,
+            onCopyToClipboard: _copyToClipboard,
           ),
 
-          // 主编辑区域
+          // 主要内容区域 - 使用ImageViewer组件
           Expanded(
-            child: Container(
-              width: double
-                  .infinity, // <<<<< ENSURE CONTAINER FILLS HORIZONTAL SPACE
-              color: Colors.white, // 白色背景
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : LayoutBuilder(
-                      builder: (context, constraints) {
-                        // Update available size state AFTER the frame is built
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (mounted &&
-                              _availableEditorSize != constraints.biggest) {
-                            // Update the size used for fit calculations etc.
-                            _logger.d(
-                              'LayoutBuilder updating availableEditorSize: ${constraints.biggest}',
-                            );
-                            setState(() {
-                              _availableEditorSize = constraints.biggest;
-                            });
-                          }
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // 更新可用尺寸以供调整窗口大小使用
+                _availableEditorSize = Size(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                );
+
+                return Center(
+                  child: ImageViewer(
+                    imageData: _imageData,
+                    capturedScale: _capturedScale,
+                    transformController: _transformController,
+                    minZoom: _minZoom,
+                    maxZoom: _maxZoom,
+                    zoomLevel: _zoomLevel,
+                    onMouseScroll: _handleMouseScroll,
+                    onZoomChanged: (scale) {
+                      if (mounted && (_zoomLevel - scale).abs() > 0.01) {
+                        setState(() {
+                          _zoomLevel = scale;
                         });
-
-                        // Ensure we have a size before building InteractiveViewer
-                        if (_availableEditorSize == null) {
-                          return const Center(
-                            child: Text('Calculating layout...'),
-                          );
-                        }
-
-                        return InteractiveViewer(
-                          transformationController: _transformController,
-                          minScale: _minZoom,
-                          maxScale: _maxZoom,
-                          constrained:
-                              true, // Keep constrained for initial centering
-                          boundaryMargin: EdgeInsets.zero,
-                          panEnabled: true,
-                          alignment: Alignment.center,
-                          onInteractionStart: (details) {
-                            // _startingFocalPoint = details.focalPoint;
-                            // _initialZoom = _zoomLevel;
-                          },
-                          onInteractionUpdate: (details) {
-                            // Let InteractiveViewer handle pan/zoom updates
-                          },
-                          child: Listener(
-                            // <<<<< ADD Listener for mouse scroll
-                            onPointerSignal: (pointerSignal) {
-                              if (pointerSignal is PointerScrollEvent) {
-                                _handleMouseScroll(pointerSignal);
-                              }
-                            },
-                            child: _imageData != null
-                                ? Image.memory(
-                                    _imageData!,
-                                    gaplessPlayback: true,
-                                    scale: _capturedScale,
-                                  )
-                                : const Placeholder(),
-                          ),
-                        );
-                      },
-                    ),
+                      }
+                    },
+                  ),
+                );
+              },
             ),
           ),
 
           // 底部状态栏 - macOS风格设计
-          Container(
-            height: 38,
-            color: const Color(0xFFF2F2F2), // 更接近macOS灰度
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
-              children: [
-                // 缩放控制（左侧） - 更新为macOS风格带下拉菜单
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(5),
-                    border: Border.all(color: const Color(0xFFDFDFDF)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withAlpha((0.03 * 255).round()),
-                        blurRadius: 0.5,
-                        offset: const Offset(0, 0.5),
-                      ),
-                    ],
+          EditorStatusBar(
+            imageData: _imageData,
+            zoomLevel: _zoomLevel,
+            minZoom: _minZoom,
+            maxZoom: _maxZoom,
+            onZoomChanged: _setZoomLevel,
+            onZoomMenuTap: () => _showZoomMenu(context),
+            zoomLayerLink: _zoomLayerLink,
+            zoomButtonKey: _zoomButtonKey,
+            onExportImage: _saveImage,
+            onCopyToClipboard: _copyToClipboard,
+            onCrop: () => _logger.i('Crop button pressed'),
+            onOpenFileLocation: () => _logger.i('Files button pressed'),
+            onDragSuccess: () {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('图像拖拽已启动，可拖放到目标应用程序'),
+                    duration: Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
                   ),
-                  height: 26,
-                  width: 148,
-                  margin: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
-                    children: [
-                      // 百分比显示 - 可点击弹出菜单
-                      CompositedTransformTarget(
-                        link: _zoomLayerLink,
-                        child: MouseRegion(
-                          onEnter: (_) {
-                            _zoomMenuHideTimer?.cancel();
-                            setState(() {
-                              // _isZoomHovered = true;
-                            });
-                            _showZoomMenu(context);
-                          },
-                          onExit: (_) {
-                            _startZoomMenuHideTimer();
-                          },
-                          child: Container(
-                            width: 60,
-                            padding: const EdgeInsets.only(left: 8),
-                            child: InkWell(
-                              onTap: () => _showZoomMenu(context),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.start,
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    '${(_zoomLevel * 100).toInt()}',
-                                    textAlign: TextAlign.right,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                      color: Color(0xFF333333),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 1),
-                                  const Text(
-                                    '%',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: Color(0xFF666666),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 2),
-                                  Icon(
-                                    PhosphorIcons.caretUp(
-                                      PhosphorIconsStyle.light,
-                                    ),
-                                    size: 10,
-                                    color: Colors.grey[700],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      // 拖动条
-                      Expanded(
-                        child: SliderTheme(
-                          data: SliderThemeData(
-                            trackHeight: 2,
-                            activeTrackColor: const Color(0xFF0070E0),
-                            inactiveTrackColor: const Color(0xFFCCCCCC),
-                            thumbColor: Colors.white,
-                            thumbShape: const RoundSliderThumbShape(
-                              enabledThumbRadius: 7,
-                              elevation: 1,
-                            ),
-                            overlayShape: SliderComponentShape.noOverlay,
-                          ),
-                          child: Slider(
-                            value: _zoomLevel,
-                            min: _minZoom,
-                            max: _maxZoom,
-                            onChanged: (value) {
-                              _setZoomLevel(value);
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
+                );
+              }
+            },
+            onDragError: (message) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('拖拽失败: $message'),
+                    duration: const Duration(seconds: 3),
+                    behavior: SnackBarBehavior.floating,
                   ),
-                ),
-
-                // 拖拽提示（中间）
-                Expanded(
-                  child: Row(
-                    children: [
-                      // 左侧空白区域 - 可拖动区域
-                      Expanded(
-                        child: GestureDetector(
-                          onPanStart: (_) {
-                            WindowService.instance.startDragging();
-                          },
-                          child: MouseRegion(
-                            cursor: SystemMouseCursors.grab,
-                            child: Container(color: Colors.transparent),
-                          ),
-                        ),
-                      ),
-
-                      // 中间拖拽提示
-                      GestureDetector(
-                        onPanStart: (details) {
-                          // 使用拖拽导出服务而不是窗口拖动
-                          if (_imageData != null) {
-                            DragExportService.instance
-                                .startImageDrag(
-                              _imageData!,
-                              details.globalPosition,
-                            )
-                                .catchError((error) {
-                              _logger.e('拖拽导出失败：$error');
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('拖拽失败: $error'),
-                                    duration: const Duration(seconds: 3),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                              }
-                            });
-                          }
-                        },
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.grab,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(5),
-                              border:
-                                  Border.all(color: const Color(0xFFDFDFDF)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withAlpha(
-                                    (0.03 * 255).round(),
-                                  ),
-                                  blurRadius: 0.5,
-                                  offset: const Offset(0, 0.5),
-                                ),
-                              ],
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  PhosphorIcons.arrowSquareOut(
-                                      PhosphorIconsStyle.light),
-                                  size: 14,
-                                  color: Colors.grey[700],
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Drag To Copy',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey[800],
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Icon(
-                                  PhosphorIcons.arrowSquareOut(
-                                      PhosphorIconsStyle.light),
-                                  size: 14,
-                                  color: Colors.grey[700],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      // 右侧空白区域 - 可拖动区域
-                      Expanded(
-                        child: GestureDetector(
-                          onPanStart: (_) {
-                            WindowService.instance.startDragging();
-                          },
-                          child: MouseRegion(
-                            cursor: SystemMouseCursors.grab,
-                            child: Container(color: Colors.transparent),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // 右侧操作按钮 - 使用Flexible允许收缩
-                Flexible(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.end, // 靠右对齐
-                    children: [
-                      // 添加可拖拽导出按钮
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: DraggableExportButton(
-                          imageData: _imageData,
-                          size: 30,
-                          iconSize: 16,
-                          tooltip: '拖拽到任意应用导出图像',
-                          onDragSuccess: () {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('图像拖拽已启动，可拖放到目标应用程序'),
-                                  duration: Duration(seconds: 2),
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          },
-                          onDragError: (message) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('拖拽失败: $message'),
-                                  duration: const Duration(seconds: 3),
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          },
-                        ),
-                      ),
-                      _buildBottomActionButton(
-                        icon: PhosphorIcons.export(PhosphorIconsStyle.light),
-                        onTap: _copyToClipboard,
-                      ),
-                      _buildBottomActionButton(
-                        icon: PhosphorIcons.scissors(PhosphorIconsStyle.light),
-                        onTap: () => _logger.i('Crop button pressed'),
-                      ),
-                      _buildBottomActionButton(
-                        icon: PhosphorIcons.files(PhosphorIconsStyle.light),
-                        onTap: () => _logger.i('Files button pressed'),
-                      ),
-                      _buildBottomActionButton(
-                        icon: PhosphorIcons.cloudArrowUp(
-                          PhosphorIconsStyle.light,
-                        ),
-                        onTap: _saveImage,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+                );
+              }
+            },
           ),
         ],
       ),
     );
-  }
-
-  // 工具按钮构建方法
-  Widget _buildToolButton({
-    required dynamic icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-    Color? color,
-    Key? key,
-  }) {
-    return InkWell(
-      key: key,
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding: const EdgeInsets.all(5),
-        margin: const EdgeInsets.symmetric(horizontal: 1),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(4),
-          color: isSelected ? Colors.grey[200] : Colors.transparent,
-        ),
-        child: icon is IconData
-            ? Icon(
-                icon,
-                size: 18,
-                color: color ?? (isSelected ? Colors.black : Colors.grey[600]),
-              )
-            : icon, // 支持PhosphorIcons
-      ),
-    );
-  }
-
-  // 底部操作按钮构建方法
-  Widget _buildBottomActionButton({
-    required dynamic icon,
-    required VoidCallback onTap,
-  }) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: const Color(0xFFDFDFDF)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha((0.03 * 255).round()),
-            blurRadius: 0.5,
-            offset: const Offset(0, 0.5),
-          ),
-        ],
-      ),
-      child: IconButton(
-        icon: icon is IconData
-            ? Icon(icon, size: 16, color: const Color(0xFF555555))
-            : icon,
-        onPressed: onTap,
-        padding: const EdgeInsets.all(5),
-        constraints: const BoxConstraints(minWidth: 30, minHeight: 26),
-        iconSize: 16,
-        splashRadius: 16,
-      ),
-    );
-  }
-
-  /// 重置图片位置到中心
-  void _resetPositionToCenter() {
-    if (_transformController.value != Matrix4.identity()) {
-      // 保持当前缩放，但重置平移到中心
-      final scale = _zoomLevel;
-      final matrix = Matrix4.identity()..scale(scale, scale);
-
-      // 使用动画平滑过渡
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() {
-            _transformController.value = matrix;
-          });
-        }
-      });
-
-      _logger.d('Reset position to center');
-    }
   }
 
   /// 显示New按钮菜单 - 使用紧凑型菜单组件
@@ -1318,10 +785,6 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     if (_newButtonOverlay != null) {
       _hideNewButtonMenu();
     }
-
-    setState(() {
-      // _isNewButtonHovered = true;
-    });
 
     final List<HoverMenuItem> menuItems = [
       HoverMenuItem(
@@ -1376,9 +839,7 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     _newButtonOverlay?.remove();
     _newButtonOverlay = null;
     if (mounted) {
-      setState(() {
-        // _isNewButtonHovered = false;
-      });
+      // setState 内部为空，直接删除
     }
   }
 
@@ -1509,9 +970,12 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
 
     // Correct position if image bounds exceed viewport
     if (transformedBounds.width > viewportSize.width) {
-      if (transformedBounds.left > 0) dx = -transformedBounds.left;
-      if (transformedBounds.right < viewportSize.width)
+      if (transformedBounds.left > 0) {
+        dx = -transformedBounds.left;
+      }
+      if (transformedBounds.right < viewportSize.width) {
         dx = viewportSize.width - transformedBounds.right;
+      }
     } else {
       // Center horizontally if smaller than viewport
       dx = (viewportSize.width - transformedBounds.width) / 2 -
@@ -1519,9 +983,12 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     }
 
     if (transformedBounds.height > viewportSize.height) {
-      if (transformedBounds.top > 0) dy = -transformedBounds.top;
-      if (transformedBounds.bottom < viewportSize.height)
+      if (transformedBounds.top > 0) {
+        dy = -transformedBounds.top;
+      }
+      if (transformedBounds.bottom < viewportSize.height) {
         dy = viewportSize.height - transformedBounds.bottom;
+      }
     } else {
       // Center vertically if smaller than viewport
       dy = (viewportSize.height - transformedBounds.height) / 2 -

@@ -1,9 +1,6 @@
 import Cocoa
 import FlutterMacOS
 
-// 导入 DragImageHandler 类
-// 因为 DragImageHandler 在同一模块，实际不需要显式导入
-
 @main
 class AppDelegate: FlutterAppDelegate {
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

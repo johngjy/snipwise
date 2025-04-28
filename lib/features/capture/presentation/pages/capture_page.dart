@@ -12,10 +12,6 @@ import '../../../../core/services/window_service.dart'; // 重新导入窗口服
 import '../../services/long_screenshot_service.dart'; // 导入长截图服务
 import '../widgets/delay_menu.dart';
 import '../widgets/video_menu.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 
 /// 截图选择页面 - 打开软件时显示的主页面
@@ -69,9 +65,6 @@ class _CapturePageState extends State<CapturePage> {
   late final List<MenuItemConfig> _menuItems;
 
   // Make fields final since they're only set once
-  final bool _isCapturing = false;
-  final int _captureDelay = 0;
-  final CaptureMode _selectedMode = CaptureMode.rectangle;
   Timer? _delayMenuHideTimer; // Add timer for delay menu
   Timer? _videoMenuHideTimer; // Add timer for video menu
 
