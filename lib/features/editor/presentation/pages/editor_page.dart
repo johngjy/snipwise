@@ -20,6 +20,8 @@ import '../../../capture/services/capture_service.dart';
 import '../../../capture/data/models/capture_mode.dart';
 // 导入拖拽导出组件
 import '../../../../src/features/drag_export/draggable_export_button.dart';
+// 导入拖拽导出服务
+import '../../../../src/features/drag_export/drag_export_service.dart';
 
 /// 图片编辑页面 - 截图完成后的编辑界面
 class EditorPage extends StatefulWidget {
@@ -32,12 +34,7 @@ class EditorPage extends StatefulWidget {
   /// 逻辑矩形
   final Rect? logicalRect;
 
-  const EditorPage({
-    super.key,
-    this.imageData,
-    this.scale,
-    this.logicalRect,
-  });
+  const EditorPage({super.key, this.imageData, this.scale, this.logicalRect});
 
   @override
   State<EditorPage> createState() => _EditorPageState();
@@ -134,14 +131,17 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       final codec = await ui.instantiateImageCodec(_imageData!);
       final frame = await codec.getNextFrame();
       _imageAsUiImage = frame.image;
-      _imageSize = Size(_imageAsUiImage!.width.toDouble(),
-          _imageAsUiImage!.height.toDouble());
+      _imageSize = Size(
+        _imageAsUiImage!.width.toDouble(),
+        _imageAsUiImage!.height.toDouble(),
+      );
 
       // Use provided scale or default to 1.0
       _capturedScale = widget.scale ?? 1.0;
 
       _logger.d(
-          'Image loaded: Physical Size=${_imageSize?.width}x${_imageSize?.height}, Scale=$_capturedScale, Logical Size=${widget.logicalRect?.width}x${widget.logicalRect?.height}');
+        'Image loaded: Physical Size=${_imageSize?.width}x${_imageSize?.height}, Scale=$_capturedScale, Logical Size=${widget.logicalRect?.width}x${widget.logicalRect?.height}',
+      );
 
       // Set initial zoom level based on window adjustment
       await _adjustWindowSize();
@@ -160,7 +160,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     if (!mounted) return;
     if (widget.logicalRect == null || _imageSize == null) {
       _logger.w(
-          'Cannot adjust window size: Image logical rect or size is missing.');
+        'Cannot adjust window size: Image logical rect or size is missing.',
+      );
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -174,7 +175,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       final Display primaryDisplay = await screenRetriever.getPrimaryDisplay();
       final Size screenSize = primaryDisplay.visibleSize ?? primaryDisplay.size;
       _logger.d(
-          'Screen size (visible or total): ${screenSize.width}x${screenSize.height}');
+        'Screen size (visible or total): ${screenSize.width}x${screenSize.height}',
+      );
 
       // 2. Define Constraints
       const double minWidth = 900.0;
@@ -182,13 +184,15 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       final double maxWidth = screenSize.width * 0.9;
       final double maxHeight = screenSize.height * 0.9;
       _logger.d(
-          'Window constraints: Min=${minWidth}x$minHeight, Max=${maxWidth.toStringAsFixed(2)}x${maxHeight.toStringAsFixed(2)}');
+        'Window constraints: Min=${minWidth}x$minHeight, Max=${maxWidth.toStringAsFixed(2)}x${maxHeight.toStringAsFixed(2)}',
+      );
 
       // 3. Calculate Base Size (Image + UI)
       final double baseWidth = widget.logicalRect!.width;
       final double baseHeight = widget.logicalRect!.height + _totalUIHeight;
       _logger.d(
-          'Base desired size (Image + UI): ${baseWidth.toStringAsFixed(2)}x${baseHeight.toStringAsFixed(2)}');
+        'Base desired size (Image + UI): ${baseWidth.toStringAsFixed(2)}x${baseHeight.toStringAsFixed(2)}',
+      );
 
       // 4. Determine if Padding Needed (Image forces size > min)
       final bool needsPadding = baseWidth > minWidth || baseHeight > minHeight;
@@ -202,13 +206,15 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       final double paddedWidth = baseWidth + (needsPadding ? 40.0 : 0.0);
       final double paddedHeight = baseHeight + (needsPadding ? 40.0 : 0.0);
       _logger.d(
-          'Size after potential padding: ${paddedWidth.toStringAsFixed(2)}x${paddedHeight.toStringAsFixed(2)}');
+        'Size after potential padding: ${paddedWidth.toStringAsFixed(2)}x${paddedHeight.toStringAsFixed(2)}',
+      );
 
       // 6. Apply Minimums to Padded Size
       double targetWidth = max(minWidth, paddedWidth);
       double targetHeight = max(minHeight, paddedHeight);
       _logger.d(
-          'Size after applying minimums: ${targetWidth.toStringAsFixed(2)}x${targetHeight.toStringAsFixed(2)}');
+        'Size after applying minimums: ${targetWidth.toStringAsFixed(2)}x${targetHeight.toStringAsFixed(2)}',
+      );
 
       // 7. Check and Apply Maximums, Determine if Fit is Needed
       bool needsFit = false;
@@ -219,16 +225,19 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
         finalWidth = maxWidth;
         needsFit = true;
         _logger.i(
-            'Width exceeds max limit ($maxWidth). Setting width to $finalWidth and enabling fit.');
+          'Width exceeds max limit ($maxWidth). Setting width to $finalWidth and enabling fit.',
+        );
       }
       if (targetHeight > maxHeight) {
         finalHeight = maxHeight;
         needsFit = true;
         _logger.i(
-            'Height exceeds max limit ($maxHeight). Setting height to $finalHeight and enabling fit.');
+          'Height exceeds max limit ($maxHeight). Setting height to $finalHeight and enabling fit.',
+        );
       }
       _logger.d(
-          'Final target window size: ${finalWidth.toStringAsFixed(2)}x${finalHeight.toStringAsFixed(2)}');
+        'Final target window size: ${finalWidth.toStringAsFixed(2)}x${finalHeight.toStringAsFixed(2)}',
+      );
 
       // 8. Resize Window
       await WindowService.instance.resizeWindow(Size(finalWidth, finalHeight));
@@ -239,14 +248,20 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       double initialZoom;
       if (needsFit) {
         _logger.d(
-            'Calculating fit zoom level because window size was constrained.');
+          'Calculating fit zoom level because window size was constrained.',
+        );
         // Calculate available editor size based on the FINAL window size
-        final Size finalEditorSize =
-            Size(finalWidth, finalHeight - _totalUIHeight);
-        initialZoom =
-            _calculateFitZoomLevel(finalEditorSize, widget.logicalRect!.size);
+        final Size finalEditorSize = Size(
+          finalWidth,
+          finalHeight - _totalUIHeight,
+        );
+        initialZoom = _calculateFitZoomLevel(
+          finalEditorSize,
+          widget.logicalRect!.size,
+        );
         _logger.i(
-            'Fit needed. Setting initial zoom to ${initialZoom.toStringAsFixed(3)}');
+          'Fit needed. Setting initial zoom to ${initialZoom.toStringAsFixed(3)}',
+        );
       } else {
         initialZoom = 1.0; // 100% zoom
         _logger.d('No fit needed. Setting initial zoom to 100%.');
@@ -267,8 +282,11 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
         }
       });
     } catch (e, stackTrace) {
-      _logger.e('Error adjusting window size',
-          error: e, stackTrace: stackTrace);
+      _logger.e(
+        'Error adjusting window size',
+        error: e,
+        stackTrace: stackTrace,
+      );
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -285,7 +303,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
         availableSize.width <= 0 ||
         availableSize.height <= 0) {
       _logger.w(
-          'Cannot calculate fit zoom level: Invalid dimensions. Available: $availableSize, Image: $imageLogicalSize');
+        'Cannot calculate fit zoom level: Invalid dimensions. Available: $availableSize, Image: $imageLogicalSize',
+      );
       return 1.0; // Avoid division by zero or invalid calculation
     }
 
@@ -309,7 +328,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     }
 
     _logger.d(
-        'Calculated Fit Zoom: available=${availableWidth}x$availableHeight, image=${imageWidth}x$imageHeight, scale=$scale');
+      'Calculated Fit Zoom: available=${availableWidth}x$availableHeight, image=${imageWidth}x$imageHeight, scale=$scale',
+    );
     // 添加一个小边距，避免完全贴边
     return scale * 0.98;
   }
@@ -317,8 +337,11 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
   /// Set zoom level and update transformation controller
   /// Optional flag 'fromInit' to potentially handle initial setup differently
   /// Optional 'focalPointOverride' allows specifying the zoom center (e.g., cursor position)
-  void _setZoomLevel(double newZoom,
-      {bool fromInit = false, Offset? focalPointOverride}) {
+  void _setZoomLevel(
+    double newZoom, {
+    bool fromInit = false,
+    Offset? focalPointOverride,
+  }) {
     if (!mounted) return;
 
     final clampedZoom = newZoom.clamp(_minZoom, _maxZoom);
@@ -350,17 +373,21 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
           _availableEditorSize ?? MediaQuery.of(context).size;
 
       if (currentEditorSize.width <= 0 || currentEditorSize.height <= 0) {
-        _logger
-            .w("Cannot set zoom level: Invalid editor size $currentEditorSize");
+        _logger.w(
+          "Cannot set zoom level: Invalid editor size $currentEditorSize",
+        );
         return;
       }
 
       // 直接使用视口中心作为缩放点
-      final Offset viewportCenter =
-          Offset(currentEditorSize.width / 2, currentEditorSize.height / 2);
+      final Offset viewportCenter = Offset(
+        currentEditorSize.width / 2,
+        currentEditorSize.height / 2,
+      );
 
       _logger.d(
-          'Zooming around viewport center: $viewportCenter with delta $scaleDelta');
+        'Zooming around viewport center: $viewportCenter with delta $scaleDelta',
+      );
 
       final Matrix4 translationToCenter = Matrix4.identity()
         ..translate(viewportCenter.dx, viewportCenter.dy);
@@ -398,9 +425,9 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       if (directory == null) {
         _logger.e('Failed to get downloads directory');
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('获取下载目录失败')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('获取下载目录失败')));
         return;
       }
 
@@ -409,16 +436,16 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       await File(filePath).writeAsBytes(_imageData!);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('图片已保存到: $filePath')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('图片已保存到: $filePath')));
       _logger.d('Image saved to: $filePath');
     } catch (e) {
       _logger.e('Error saving image: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('保存图片失败')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('保存图片失败')));
     }
   }
 
@@ -441,9 +468,9 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
         // Don't return from finally
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(success ? '图片已复制到剪贴板' : '复制图片失败')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(success ? '图片已复制到剪贴板' : '复制图片失败')));
     }
   }
 
@@ -451,11 +478,13 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
   bool _handleKeyEvent(KeyEvent event) {
     if (event is KeyDownEvent || event is KeyRepeatEvent) {
       // Check for Shift key state using HardwareKeyboard
-      final bool currentShiftState = HardwareKeyboard
-              .instance.logicalKeysPressed
-              .contains(LogicalKeyboardKey.shiftLeft) ||
-          HardwareKeyboard.instance.logicalKeysPressed
-              .contains(LogicalKeyboardKey.shiftRight);
+      final bool currentShiftState =
+          HardwareKeyboard.instance.logicalKeysPressed.contains(
+                LogicalKeyboardKey.shiftLeft,
+              ) ||
+              HardwareKeyboard.instance.logicalKeysPressed.contains(
+                LogicalKeyboardKey.shiftRight,
+              );
 
       if (currentShiftState != _isShiftPressed) {
         setState(() {
@@ -464,11 +493,13 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       }
     } else if (event is KeyUpEvent) {
       // Check for Shift key state on KeyUp as well
-      final bool currentShiftState = HardwareKeyboard
-              .instance.logicalKeysPressed
-              .contains(LogicalKeyboardKey.shiftLeft) ||
-          HardwareKeyboard.instance.logicalKeysPressed
-              .contains(LogicalKeyboardKey.shiftRight);
+      final bool currentShiftState =
+          HardwareKeyboard.instance.logicalKeysPressed.contains(
+                LogicalKeyboardKey.shiftLeft,
+              ) ||
+              HardwareKeyboard.instance.logicalKeysPressed.contains(
+                LogicalKeyboardKey.shiftRight,
+              );
 
       if (currentShiftState != _isShiftPressed) {
         setState(() {
@@ -492,11 +523,16 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       if (option == 'Fit window') {
         // Ensure _availableEditorSize is available before calculating
         if (_availableEditorSize != null && widget.logicalRect != null) {
-          _setZoomLevel(_calculateFitZoomLevel(
-              _availableEditorSize!, widget.logicalRect!.size));
+          _setZoomLevel(
+            _calculateFitZoomLevel(
+              _availableEditorSize!,
+              widget.logicalRect!.size,
+            ),
+          );
         } else {
           _logger.w(
-              'Cannot calculate fit zoom level from menu: Missing available editor size or logical rect.');
+            'Cannot calculate fit zoom level from menu: Missing available editor size or logical rect.',
+          );
           // Optionally provide feedback or default behavior
         }
       } else {
@@ -510,7 +546,7 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     final List<String> zoomOptions = [
       'Fit window',
       '100%',
-      '200%'
+      '200%',
     ]; // Updated list
 
     // 创建覆盖条目 - 定位在屏幕左下角
@@ -535,7 +571,9 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
               fitZoomLevel:
                   (_availableEditorSize != null && widget.logicalRect != null)
                       ? _calculateFitZoomLevel(
-                          _availableEditorSize!, widget.logicalRect!.size)
+                          _availableEditorSize!,
+                          widget.logicalRect!.size,
+                        )
                       : 1.0, // Default if cannot calculate
               onOptionSelected: handleMenuItemTap,
             ),
@@ -580,20 +618,27 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       // Calculate new zoom level
       final double scrollDelta = event.scrollDelta.dy;
       final double zoomFactor = scrollDelta < 0 ? 1.1 : (1 / 1.1);
-      final double newZoom =
-          (_zoomLevel * zoomFactor).clamp(_minZoom, _maxZoom);
+      final double newZoom = (_zoomLevel * zoomFactor).clamp(
+        _minZoom,
+        _maxZoom,
+      );
 
       Offset? focalPointToUse;
       final Matrix4 currentMatrix = _transformController.value;
       try {
         final Matrix4 invMatrix = Matrix4.inverted(currentMatrix);
         final Offset cursorInViewport = event.localPosition;
-        final Vector4 cursorVec =
-            Vector4(cursorInViewport.dx, cursorInViewport.dy, 0, 1);
+        final Vector4 cursorVec = Vector4(
+          cursorInViewport.dx,
+          cursorInViewport.dy,
+          0,
+          1,
+        );
         final Vector4 transformedVec = invMatrix.transformed(cursorVec);
         final Offset cursorInImageCoords = Offset(
-            transformedVec.x / transformedVec.w,
-            transformedVec.y / transformedVec.w);
+          transformedVec.x / transformedVec.w,
+          transformedVec.y / transformedVec.w,
+        );
 
         if (_imageSize != null &&
             cursorInImageCoords.dx >= 0 &&
@@ -602,15 +647,18 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
             cursorInImageCoords.dy < _imageSize!.height) {
           focalPointToUse = cursorInViewport;
           _logger.d(
-              'Mouse scroll zoom: Cursor inside image, using cursor focal point');
+            'Mouse scroll zoom: Cursor inside image, using cursor focal point',
+          );
         } else {
           _logger.d(
-              'Mouse scroll zoom: Cursor outside image, using image center focal point');
+            'Mouse scroll zoom: Cursor outside image, using image center focal point',
+          );
         }
       } catch (e) {
         _logger.e('Matrix inversion failed during mouse scroll: $e');
         _logger.d(
-            'Mouse scroll zoom: Matrix inversion failed, using image center focal point');
+          'Mouse scroll zoom: Matrix inversion failed, using image center focal point',
+        );
       }
 
       _setZoomLevel(newZoom, focalPointOverride: focalPointToUse);
@@ -653,7 +701,9 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
           Container(
             color: const Color(0xFFE0E0E0), // 灰色背景
             padding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 4), // 设置垂直padding为4
+              horizontal: 12,
+              vertical: 4,
+            ), // 设置垂直padding为4
             child: Row(
               children: [
                 // macOS系统左侧预留空间
@@ -671,7 +721,9 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
                         borderRadius: BorderRadius.circular(4),
                       ),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 3),
+                        horizontal: 12,
+                        vertical: 3,
+                      ),
                       child: InkWell(
                         onTap: () {
                           _showSaveConfirmationDialog();
@@ -680,8 +732,11 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(PhosphorIcons.plus(PhosphorIconsStyle.light),
-                                size: 18, color: Colors.grey[700]),
+                            Icon(
+                              PhosphorIcons.plus(PhosphorIconsStyle.light),
+                              size: 18,
+                              color: Colors.grey[700],
+                            ),
                             const SizedBox(width: 6),
                             Text(
                               'New',
@@ -706,49 +761,61 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(4),
                     ),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 0,
+                    ),
                     child: Row(
                       children: [
                         // 编辑工具按钮 (通常应该从EditingToolbar提取或修改)
                         _buildToolButton(
-                            icon: PhosphorIcons.chatCircleText(
-                                PhosphorIconsStyle.light),
-                            isSelected: _selectedToolString == 'callout',
-                            onTap: () => _selectTool('callout')),
+                          icon: PhosphorIcons.chatCircleText(
+                            PhosphorIconsStyle.light,
+                          ),
+                          isSelected: _selectedToolString == 'callout',
+                          onTap: () => _selectTool('callout'),
+                        ),
                         _buildToolButton(
-                            icon:
-                                PhosphorIcons.square(PhosphorIconsStyle.light),
-                            isSelected: _selectedToolString == 'rect',
-                            onTap: () => _selectTool('rect')),
+                          icon: PhosphorIcons.square(PhosphorIconsStyle.light),
+                          isSelected: _selectedToolString == 'rect',
+                          onTap: () => _selectTool('rect'),
+                        ),
                         _buildToolButton(
-                            icon: PhosphorIcons.ruler(PhosphorIconsStyle.light),
-                            isSelected: _selectedToolString == 'measure',
-                            onTap: () => _selectTool('measure')),
+                          icon: PhosphorIcons.ruler(PhosphorIconsStyle.light),
+                          isSelected: _selectedToolString == 'measure',
+                          onTap: () => _selectTool('measure'),
+                        ),
                         _buildToolButton(
-                            icon: PhosphorIcons.circleHalf(
-                                PhosphorIconsStyle.light),
-                            isSelected: _selectedToolString == 'graymask',
-                            onTap: () => _selectTool('graymask')),
+                          icon: PhosphorIcons.circleHalf(
+                            PhosphorIconsStyle.light,
+                          ),
+                          isSelected: _selectedToolString == 'graymask',
+                          onTap: () => _selectTool('graymask'),
+                        ),
                         _buildToolButton(
-                            icon: PhosphorIcons.highlighterCircle(
-                                PhosphorIconsStyle.light),
-                            isSelected: _selectedToolString == 'highlight',
-                            onTap: () => _selectTool('highlight')),
+                          icon: PhosphorIcons.highlighterCircle(
+                            PhosphorIconsStyle.light,
+                          ),
+                          isSelected: _selectedToolString == 'highlight',
+                          onTap: () => _selectTool('highlight'),
+                        ),
                         _buildToolButton(
-                            icon: PhosphorIcons.magnifyingGlass(
-                                PhosphorIconsStyle.light),
-                            isSelected: _selectedToolString == 'magnifier',
-                            onTap: () => _selectTool('magnifier')),
+                          icon: PhosphorIcons.magnifyingGlass(
+                            PhosphorIconsStyle.light,
+                          ),
+                          isSelected: _selectedToolString == 'magnifier',
+                          onTap: () => _selectTool('magnifier'),
+                        ),
                         _buildToolButton(
-                            icon: PhosphorIcons.textT(PhosphorIconsStyle.light),
-                            isSelected: _selectedToolString == 'ocr',
-                            onTap: () => _selectTool('ocr')),
+                          icon: PhosphorIcons.textT(PhosphorIconsStyle.light),
+                          isSelected: _selectedToolString == 'ocr',
+                          onTap: () => _selectTool('ocr'),
+                        ),
                         _buildToolButton(
-                            icon:
-                                PhosphorIcons.eraser(PhosphorIconsStyle.light),
-                            isSelected: _selectedToolString == 'rubber',
-                            onTap: () => _selectTool('rubber')),
+                          icon: PhosphorIcons.eraser(PhosphorIconsStyle.light),
+                          isSelected: _selectedToolString == 'rubber',
+                          onTap: () => _selectTool('rubber'),
+                        ),
 
                         // 分隔线
                         Container(
@@ -760,21 +827,27 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
 
                         // 动作按钮
                         _buildToolButton(
-                            icon: PhosphorIcons.arrowCounterClockwise(
-                                PhosphorIconsStyle.light),
-                            isSelected: false,
-                            onTap: _handleUndo),
+                          icon: PhosphorIcons.arrowCounterClockwise(
+                            PhosphorIconsStyle.light,
+                          ),
+                          isSelected: false,
+                          onTap: _handleUndo,
+                        ),
                         _buildToolButton(
-                            icon: PhosphorIcons.arrowClockwise(
-                                PhosphorIconsStyle.light),
-                            isSelected: false,
-                            onTap: _handleRedo),
+                          icon: PhosphorIcons.arrowClockwise(
+                            PhosphorIconsStyle.light,
+                          ),
+                          isSelected: false,
+                          onTap: _handleRedo,
+                        ),
                         _buildToolButton(
-                            icon: PhosphorIcons.magnifyingGlassPlus(
-                                PhosphorIconsStyle.light),
-                            isSelected: false,
-                            onTap: _handleZoom,
-                            key: _zoomButtonKey),
+                          icon: PhosphorIcons.magnifyingGlassPlus(
+                            PhosphorIconsStyle.light,
+                          ),
+                          isSelected: false,
+                          onTap: _handleZoom,
+                          key: _zoomButtonKey,
+                        ),
                       ],
                     ),
                   ),
@@ -787,16 +860,17 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _buildToolButton(
-                        icon:
-                            PhosphorIcons.floppyDisk(PhosphorIconsStyle.light),
-                        isSelected: false,
-                        onTap: _saveImage,
-                        color: Colors.black),
+                      icon: PhosphorIcons.floppyDisk(PhosphorIconsStyle.light),
+                      isSelected: false,
+                      onTap: _saveImage,
+                      color: Colors.black,
+                    ),
                     _buildToolButton(
-                        icon: PhosphorIcons.copy(PhosphorIconsStyle.light),
-                        isSelected: false,
-                        onTap: _copyToClipboard,
-                        color: Colors.black),
+                      icon: PhosphorIcons.copy(PhosphorIconsStyle.light),
+                      isSelected: false,
+                      onTap: _copyToClipboard,
+                      color: Colors.black,
+                    ),
                   ],
                 ),
               ],
@@ -819,7 +893,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
                               _availableEditorSize != constraints.biggest) {
                             // Update the size used for fit calculations etc.
                             _logger.d(
-                                'LayoutBuilder updating availableEditorSize: ${constraints.biggest}');
+                              'LayoutBuilder updating availableEditorSize: ${constraints.biggest}',
+                            );
                             setState(() {
                               _availableEditorSize = constraints.biggest;
                             });
@@ -829,7 +904,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
                         // Ensure we have a size before building InteractiveViewer
                         if (_availableEditorSize == null) {
                           return const Center(
-                              child: Text('Calculating layout...'));
+                            child: Text('Calculating layout...'),
+                          );
                         }
 
                         return InteractiveViewer(
@@ -938,7 +1014,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
                                   const SizedBox(width: 2),
                                   Icon(
                                     PhosphorIcons.caretUp(
-                                        PhosphorIconsStyle.light),
+                                      PhosphorIconsStyle.light,
+                                    ),
                                     size: 10,
                                     color: Colors.grey[700],
                                   ),
@@ -989,57 +1066,83 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
                           },
                           child: MouseRegion(
                             cursor: SystemMouseCursors.grab,
-                            child: Container(
-                              color: Colors.transparent,
-                            ),
+                            child: Container(color: Colors.transparent),
                           ),
                         ),
                       ),
 
                       // 中间拖拽提示
                       GestureDetector(
-                        onPanStart: (_) {
-                          WindowService.instance.startDragging();
+                        onPanStart: (details) {
+                          // 使用拖拽导出服务而不是窗口拖动
+                          if (_imageData != null) {
+                            DragExportService.instance
+                                .startImageDrag(
+                              _imageData!,
+                              details.globalPosition,
+                            )
+                                .catchError((error) {
+                              _logger.e('拖拽导出失败：$error');
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('拖拽失败: $error'),
+                                    duration: const Duration(seconds: 3),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              }
+                            });
+                          }
                         },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(5),
-                            border: Border.all(color: const Color(0xFFDFDFDF)),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black
-                                    .withAlpha((0.03 * 255).round()),
-                                blurRadius: 0.5,
-                                offset: const Offset(0, 0.5),
-                              ),
-                            ],
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                PhosphorIcons.list(PhosphorIconsStyle.light),
-                                size: 14,
-                                color: Colors.grey[700],
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Drag To Copy',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey[800],
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.grab,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(5),
+                              border:
+                                  Border.all(color: const Color(0xFFDFDFDF)),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withAlpha(
+                                    (0.03 * 255).round(),
+                                  ),
+                                  blurRadius: 0.5,
+                                  offset: const Offset(0, 0.5),
                                 ),
-                              ),
-                              const SizedBox(width: 6),
-                              Icon(
-                                PhosphorIcons.list(PhosphorIconsStyle.light),
-                                size: 14,
-                                color: Colors.grey[700],
-                              ),
-                            ],
+                              ],
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  PhosphorIcons.arrowSquareOut(
+                                      PhosphorIconsStyle.light),
+                                  size: 14,
+                                  color: Colors.grey[700],
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Drag To Copy',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey[800],
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Icon(
+                                  PhosphorIcons.arrowSquareOut(
+                                      PhosphorIconsStyle.light),
+                                  size: 14,
+                                  color: Colors.grey[700],
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -1052,9 +1155,7 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
                           },
                           child: MouseRegion(
                             cursor: SystemMouseCursors.grab,
-                            child: Container(
-                              color: Colors.transparent,
-                            ),
+                            child: Container(color: Colors.transparent),
                           ),
                         ),
                       ),
@@ -1114,7 +1215,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
                       ),
                       _buildBottomActionButton(
                         icon: PhosphorIcons.cloudArrowUp(
-                            PhosphorIconsStyle.light),
+                          PhosphorIconsStyle.light,
+                        ),
                         onTap: _saveImage,
                       ),
                     ],
@@ -1179,18 +1281,11 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       ),
       child: IconButton(
         icon: icon is IconData
-            ? Icon(
-                icon,
-                size: 16,
-                color: const Color(0xFF555555),
-              )
+            ? Icon(icon, size: 16, color: const Color(0xFF555555))
             : icon,
         onPressed: onTap,
         padding: const EdgeInsets.all(5),
-        constraints: const BoxConstraints(
-          minWidth: 30,
-          minHeight: 26,
-        ),
+        constraints: const BoxConstraints(minWidth: 30, minHeight: 26),
         iconSize: 16,
         splashRadius: 16,
       ),
@@ -1259,9 +1354,7 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
               _newButtonHideTimer?.cancel();
             },
             onExit: (_) => _startNewButtonHideTimer(),
-            child: HoverMenu(
-              items: menuItems,
-            ),
+            child: HoverMenu(items: menuItems),
           ),
         ),
       ),
@@ -1324,24 +1417,26 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
         final codec = await ui.instantiateImageCodec(_imageData!);
         final frame = await codec.getNextFrame();
         _imageAsUiImage = frame.image;
-        _imageSize = Size(_imageAsUiImage!.width.toDouble(),
-            _imageAsUiImage!.height.toDouble());
+        _imageSize = Size(
+          _imageAsUiImage!.width.toDouble(),
+          _imageAsUiImage!.height.toDouble(),
+        );
 
         if (!mounted) return;
         await _adjustWindowSize();
       } else {
         _logger.w('截图未返回结果或已取消');
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('截图未完成或已取消')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('截图未完成或已取消')));
       }
     } catch (e, stackTrace) {
       _logger.e('截图过程中发生错误', error: e, stackTrace: stackTrace);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('截图失败: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('截图失败: $e')));
     } finally {
       if (!captureSuccess && mounted) {
         setState(() {
@@ -1359,7 +1454,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
         return AlertDialog(
           title: const Text('Save Current Screenshot'),
           content: const Text(
-              'Would you like to save your current screenshot before taking a new one?'),
+            'Would you like to save your current screenshot before taking a new one?',
+          ),
           actions: <Widget>[
             TextButton(
               child: const Text('Discard'),
@@ -1396,10 +1492,16 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     if (!mounted || _imageSize == null || _availableEditorSize == null) return;
 
     final Matrix4 currentMatrix = _transformController.value;
-    final Rect imageBoundsLocal =
-        Rect.fromLTWH(0, 0, _imageSize!.width, _imageSize!.height);
-    final Rect transformedBounds =
-        transformRect(currentMatrix, imageBoundsLocal);
+    final Rect imageBoundsLocal = Rect.fromLTWH(
+      0,
+      0,
+      _imageSize!.width,
+      _imageSize!.height,
+    );
+    final Rect transformedBounds = transformRect(
+      currentMatrix,
+      imageBoundsLocal,
+    );
 
     final Size viewportSize = _availableEditorSize!;
     double dx = 0;
@@ -1429,7 +1531,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     if (dx.abs() > 1e-3 || dy.abs() > 1e-3) {
       // Add tolerance
       _logger.d(
-          'Applying boundary correction: dx=${dx.toStringAsFixed(2)}, dy=${dy.toStringAsFixed(2)}');
+        'Applying boundary correction: dx=${dx.toStringAsFixed(2)}, dy=${dy.toStringAsFixed(2)}',
+      );
       // Use post-frame callback to avoid setState during build/layout
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -1442,14 +1545,18 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
   // Helper function to transform a Rect using a Matrix4
   Rect transformRect(Matrix4 matrix, Rect rect) {
     // Transform corner points using Vector4
-    final Vector4 topLeft =
-        matrix.transformed(Vector4(rect.left, rect.top, 0, 1));
-    final Vector4 topRight =
-        matrix.transformed(Vector4(rect.right, rect.top, 0, 1));
-    final Vector4 bottomLeft =
-        matrix.transformed(Vector4(rect.left, rect.bottom, 0, 1));
-    final Vector4 bottomRight =
-        matrix.transformed(Vector4(rect.right, rect.bottom, 0, 1));
+    final Vector4 topLeft = matrix.transformed(
+      Vector4(rect.left, rect.top, 0, 1),
+    );
+    final Vector4 topRight = matrix.transformed(
+      Vector4(rect.right, rect.top, 0, 1),
+    );
+    final Vector4 bottomLeft = matrix.transformed(
+      Vector4(rect.left, rect.bottom, 0, 1),
+    );
+    final Vector4 bottomRight = matrix.transformed(
+      Vector4(rect.right, rect.bottom, 0, 1),
+    );
 
     // Normalize W component
     final double topLeftX = topLeft.x / topLeft.w;
@@ -1462,13 +1569,21 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     final double bottomRightY = bottomRight.y / bottomRight.w;
 
     final double minX = math.min(
-        math.min(topLeftX, topRightX), math.min(bottomLeftX, bottomRightX));
+      math.min(topLeftX, topRightX),
+      math.min(bottomLeftX, bottomRightX),
+    );
     final double maxX = math.max(
-        math.max(topLeftX, topRightX), math.max(bottomLeftX, bottomRightX));
+      math.max(topLeftX, topRightX),
+      math.max(bottomLeftX, bottomRightX),
+    );
     final double minY = math.min(
-        math.min(topLeftY, topRightY), math.min(bottomLeftY, bottomRightY));
+      math.min(topLeftY, topRightY),
+      math.min(bottomLeftY, bottomRightY),
+    );
     final double maxY = math.max(
-        math.max(topLeftY, topRightY), math.max(bottomLeftY, bottomRightY));
+      math.max(topLeftY, topRightY),
+      math.max(bottomLeftY, bottomRightY),
+    );
 
     return Rect.fromLTRB(minX, minY, maxX, maxY);
   }

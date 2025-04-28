@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import '../../../../features/editor/services/drag_export/drag_export_adapter.dart';
+import 'package:smartsnipping/features/editor/services/drag_export/drag_export_adapter.dart';
 
 /// 可拖拽的图像导出按钮组件
 ///
@@ -91,13 +91,9 @@ class _DraggableExportButtonState extends State<DraggableExportButton>
       duration: const Duration(milliseconds: 150),
     );
 
-    _scaleAnimation = Tween<double>(
-      begin: 1.0,
-      end: 0.9,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    ));
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.9).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
   }
 
   @override
@@ -120,19 +116,24 @@ class _DraggableExportButtonState extends State<DraggableExportButton>
     final bool isDarkMode = theme.brightness == Brightness.dark;
 
     // 根据主题色和传入参数确定各种颜色
-    final Color enabledBackground = widget.backgroundColor ??
+    final Color enabledBackground =
+        widget.backgroundColor ??
         (isDarkMode ? Colors.grey[800]! : Colors.white);
 
-    final Color enabledIcon = widget.iconColor ??
+    final Color enabledIcon =
+        widget.iconColor ??
         (isDarkMode ? Colors.grey[300]! : const Color(0xFF333333));
 
-    final Color disabledBackground = widget.disabledBackgroundColor ??
+    final Color disabledBackground =
+        widget.disabledBackgroundColor ??
         (isDarkMode ? Colors.grey[700]! : Colors.grey[300]!);
 
-    final Color disabledIcon = widget.disabledIconColor ??
+    final Color disabledIcon =
+        widget.disabledIconColor ??
         (isDarkMode ? Colors.grey[600]! : Colors.grey[500]!);
 
-    final bool isEnabled = widget.imageData != null &&
+    final bool isEnabled =
+        widget.imageData != null &&
         DragExportAdapter.instance.isSupported &&
         !_isProcessing;
 
@@ -147,13 +148,14 @@ class _DraggableExportButtonState extends State<DraggableExportButton>
         return Transform.scale(
           scale: _scaleAnimation.value,
           child: Tooltip(
-            message: !DragExportAdapter.instance.isSupported
-                ? '当前平台不支持拖拽导出功能'
-                : widget.imageData == null
+            message:
+                !DragExportAdapter.instance.isSupported
+                    ? '当前平台不支持拖拽导出功能'
+                    : widget.imageData == null
                     ? '没有可用图像'
                     : _isProcessing
-                        ? '正在处理...'
-                        : tooltipWithFormat,
+                    ? '正在处理...'
+                    : tooltipWithFormat,
             waitDuration: const Duration(milliseconds: 500),
             child: GestureDetector(
               onPanStart: isEnabled ? _handleDragStart : null,
@@ -169,38 +171,42 @@ class _DraggableExportButtonState extends State<DraggableExportButton>
                     decoration: BoxDecoration(
                       color: isEnabled ? enabledBackground : disabledBackground,
                       borderRadius: BorderRadius.circular(widget.size / 4),
-                      boxShadow: isEnabled && _isDragging
-                          ? [
-                              BoxShadow(
-                                color: isDarkMode
-                                    ? Colors.black.withAlpha(80)
-                                    : Colors.black.withAlpha(50),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              ),
-                            ]
-                          : null,
+                      boxShadow:
+                          isEnabled && _isDragging
+                              ? [
+                                BoxShadow(
+                                  color:
+                                      isDarkMode
+                                          ? Colors.black.withAlpha(80)
+                                          : Colors.black.withAlpha(50),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ]
+                              : null,
                     ),
                     child: Center(
-                      child: _isProcessing
-                          ? SizedBox(
-                              width: widget.iconSize,
-                              height: widget.iconSize,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  isDarkMode
-                                      ? Colors.grey[300]!
-                                      : Colors.grey[600]!,
+                      child:
+                          _isProcessing
+                              ? SizedBox(
+                                width: widget.iconSize,
+                                height: widget.iconSize,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    isDarkMode
+                                        ? Colors.grey[300]!
+                                        : Colors.grey[600]!,
+                                  ),
                                 ),
+                              )
+                              : Icon(
+                                PhosphorIcons.arrowSquareOut(
+                                  PhosphorIconsStyle.light,
+                                ),
+                                size: widget.iconSize,
+                                color: isEnabled ? enabledIcon : disabledIcon,
                               ),
-                            )
-                          : Icon(
-                              PhosphorIcons.arrowSquareOut(
-                                  PhosphorIconsStyle.light),
-                              size: widget.iconSize,
-                              color: isEnabled ? enabledIcon : disabledIcon,
-                            ),
                     ),
                   ),
 
@@ -213,9 +219,10 @@ class _DraggableExportButtonState extends State<DraggableExportButton>
                         width: widget.size / 3,
                         height: widget.size / 3,
                         decoration: BoxDecoration(
-                          color: _currentFormat == DragExportFormat.png
-                              ? Colors.blue.withOpacity(0.8)
-                              : Colors.orange.withOpacity(0.8),
+                          color:
+                              _currentFormat == DragExportFormat.png
+                                  ? Colors.blue.withOpacity(0.8)
+                                  : Colors.orange.withOpacity(0.8),
                           borderRadius: BorderRadius.only(
                             topLeft: Radius.circular(widget.size / 8),
                             bottomRight: Radius.circular(widget.size / 4),
@@ -267,9 +274,10 @@ class _DraggableExportButtonState extends State<DraggableExportButton>
             children: [
               Icon(
                 Icons.check,
-                color: _currentFormat == DragExportFormat.png
-                    ? Colors.blue
-                    : Colors.transparent,
+                color:
+                    _currentFormat == DragExportFormat.png
+                        ? Colors.blue
+                        : Colors.transparent,
                 size: 16,
               ),
               const SizedBox(width: 8),
@@ -283,9 +291,10 @@ class _DraggableExportButtonState extends State<DraggableExportButton>
             children: [
               Icon(
                 Icons.check,
-                color: _currentFormat == DragExportFormat.jpg
-                    ? Colors.blue
-                    : Colors.transparent,
+                color:
+                    _currentFormat == DragExportFormat.jpg
+                        ? Colors.blue
+                        : Colors.transparent,
                 size: 16,
               ),
               const SizedBox(width: 8),

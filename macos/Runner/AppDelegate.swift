@@ -1,6 +1,9 @@
 import Cocoa
 import FlutterMacOS
 
+// 导入 DragImageHandler 类
+// 因为 DragImageHandler 在同一模块，实际不需要显式导入
+
 @main
 class AppDelegate: FlutterAppDelegate {
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -31,10 +34,6 @@ class AppDelegate: FlutterAppDelegate {
       // 允许拖动整个窗口
       window.isMovableByWindowBackground = true
     }
-    
-    // 注册拖拽图像处理插件
-    let registrar = self.registrar(forPlugin: "DragImageHandler")
-    DragImageHandler.register(with: registrar!)
     
     super.applicationDidFinishLaunching(notification)
   }
