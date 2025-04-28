@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import 'drag_export_service.dart';
 import 'package:logger/logger.dart';
+import 'package:smartsnipping/features/editor/services/drag_export/drag_export_adapter.dart';
 
 /// 可拖拽复制按钮
 ///
@@ -120,13 +120,18 @@ class DragToCopyButton extends StatelessWidget {
 
     try {
       _logger.d('开始拖拽导出');
-      await DragExportService.instance.startImageDrag(
+      final success = await DragExportAdapter.instance.startDrag(
         imageData!,
         details.globalPosition,
       );
 
-      _logger.d('拖拽导出成功启动');
-      onDragSuccess?.call();
+      if (success) {
+        _logger.d('拖拽导出成功启动');
+        onDragSuccess?.call();
+      } else {
+        _logger.e('拖拽操作启动失败');
+        onDragError?.call('拖拽操作启动失败');
+      }
     } catch (e) {
       _logger.e('拖拽导出失败: $e');
       onDragError?.call('$e');

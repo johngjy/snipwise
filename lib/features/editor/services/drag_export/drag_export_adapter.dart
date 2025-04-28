@@ -82,10 +82,13 @@ class DragExportAdapter {
 
       // 1. 创建临时文件
       final tempDir = await getTemporaryDirectory();
+      _logger.d('临时目录路径: ${tempDir.path}');
+
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final extension = format == DragExportFormat.jpg ? 'jpg' : 'png';
       tempFilePath =
           '${tempDir.path}${Platform.pathSeparator}snipwise_export_$timestamp.$extension';
+      _logger.d('将使用临时文件路径: $tempFilePath');
 
       // 2. 准备输出数据
       late Uint8List outputBytes;
@@ -115,7 +118,7 @@ class DragExportAdapter {
 
           // 修正文件扩展名
           tempFilePath = tempFilePath.replaceAll('.jpg', '.png');
-          _logger.w('回退到PNG格式');
+          _logger.w('回退到PNG格式, 新路径: $tempFilePath');
         }
       } else {
         // 不需要转换的情况
@@ -123,7 +126,7 @@ class DragExportAdapter {
       }
 
       // 3. 保存图像到临时文件
-      _logger.d('保存图像到临时文件: $tempFilePath');
+      _logger.d('正在保存图像到临时文件: $tempFilePath');
       final file = File(tempFilePath);
 
       try {
@@ -137,12 +140,23 @@ class DragExportAdapter {
 
         _logger.d(
             '图像已成功保存，文件大小: ${(fileStats.size / 1024).toStringAsFixed(2)} KB');
+
+        // 检查文件是否存在
+        if (await file.exists()) {
+          _logger.d('已确认临时文件存在: $tempFilePath');
+        } else {
+          _logger.e('临时文件不存在，写入似乎成功但文件未找到');
+          return false;
+        }
       } catch (e) {
         _logger.e('保存图像到临时文件失败', error: e);
         return false;
       }
 
       // 4. 调用平台特定实现
+      _logger.d('调用平台特定实现 (${Platform.operatingSystem})，传递参数: '
+          'filePath=$tempFilePath, x=${position.dx}, y=${position.dy}');
+
       final result = await _service.startDrag(
         tempFilePath,
         position.dx,
@@ -150,10 +164,10 @@ class DragExportAdapter {
       );
 
       if (result) {
-        _logger.d('拖拽操作已成功启动');
+        _logger.d('拖拽操作已成功启动，请拖动到目标应用');
         return true;
       } else {
-        _logger.w('拖拽操作启动失败');
+        _logger.w('拖拽操作启动失败，平台特定实现返回false');
 
         // 如果失败且未超过最大重试次数，则重试
         if (retryCount < _maxRetries) {
@@ -167,13 +181,13 @@ class DragExportAdapter {
             retryCount: retryCount + 1,
           );
         } else {
-          _logger.e('达到最大重试次数，拖拽操作启动失败');
+          _logger.e('达到最大重试次数 ($_maxRetries)，拖拽操作启动失败');
           await _cleanupFailedTempFile(tempFilePath);
           return false;
         }
       }
-    } catch (e) {
-      _logger.e('拖拽操作异常', error: e);
+    } catch (e, stackTrace) {
+      _logger.e('拖拽操作异常', error: e, stackTrace: stackTrace);
       await _cleanupFailedTempFile(tempFilePath);
 
       // 如果异常且未超过最大重试次数，则重试
@@ -200,6 +214,8 @@ class DragExportAdapter {
         if (await file.exists()) {
           await file.delete();
           _logger.d('已清理临时文件: $filePath');
+        } else {
+          _logger.d('临时文件不存在，无需清理: $filePath');
         }
       } catch (e) {
         _logger.w('清理临时文件失败: $e');

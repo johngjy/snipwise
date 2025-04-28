@@ -32,5 +32,11 @@
 	<string>应用需要屏幕捕获权限来进行截图功能</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>此应用需要控制其他应用以便进行窗口截图</string>
+	<key>NSFileProviderPresenceUsageDescription</key>
+	<string>应用需要访问文件系统以支持拖拽导出功能</string>
+	<key>NSFileProviderDomainUsageDescription</key>
+	<string>应用需要访问文件系统域以支持拖拽导出功能</string>
+	<key>NSTemporaryFolderUsageDescription</key>
+	<string>应用需要访问临时文件夹以支持拖拽导出功能</string>
 </dict>
 </plist>

@@ -73,63 +73,74 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
             return
         }
         
-        // 设置拖拽数据 - 多格式支持
-        NSLog("DragExportPlugin: 准备多格式拖拽数据")
-        let pasteboardItem = NSPasteboardItem()
         let fileURL = URL(fileURLWithPath: filePath)
         let fileExtension = fileURL.pathExtension.lowercased()
+        let fileURLString = fileURL.absoluteString
         
-        // 1. 提供文件URL (适合拖放到Finder)
-        pasteboardItem.setString(filePath, forType: .fileURL)
-        NSLog("DragExportPlugin: 已添加 fileURL 格式")
+        // 创建pasteboardItem
+        let pasteboardItem = NSPasteboardItem()
         
-        // 2. 提供NSImage格式 (适合拖放到支持NSImage的应用)
-        if let tiffData = image.tiffRepresentation {
-            pasteboardItem.setData(tiffData, forType: .tiff)
-            NSLog("DragExportPlugin: 已添加 TIFF 格式")
-        }
-        
-        // 3. 提供各种图像格式 (PNG, JPEG等)
         do {
-            let imageData = try Data(contentsOf: fileURL)
+            // 读取文件内容
+            let fileData = try Data(contentsOf: fileURL)
             
-            // 根据文件扩展名提供不同类型
+            // 添加文件URL (兼容Finder)
+            pasteboardItem.setString(fileURLString, forType: .fileURL)
+            NSLog("DragExportPlugin: 已添加 fileURL 格式")
+            
+            // 添加文件内容 (直接提供文件数据)
+            pasteboardItem.setData(fileData, forType: .fileContents)
+            NSLog("DragExportPlugin: 已添加 fileContents 格式")
+            
+            // 添加图像数据 (TIFF格式，适合大多数macOS应用)
+            if let tiffData = image.tiffRepresentation {
+                pasteboardItem.setData(tiffData, forType: .tiff)
+                NSLog("DragExportPlugin: 已添加 TIFF 格式")
+            }
+            
+            // 根据文件扩展名提供特定类型
             if fileExtension == "png" {
-                pasteboardItem.setData(imageData, forType: NSPasteboard.PasteboardType(rawValue: "public.png"))
+                pasteboardItem.setData(fileData, forType: NSPasteboard.PasteboardType(rawValue: "public.png"))
                 NSLog("DragExportPlugin: 已添加 PNG 格式")
             } else if fileExtension == "jpg" || fileExtension == "jpeg" {
-                pasteboardItem.setData(imageData, forType: NSPasteboard.PasteboardType(rawValue: "public.jpeg"))
+                pasteboardItem.setData(fileData, forType: NSPasteboard.PasteboardType(rawValue: "public.jpeg"))
                 NSLog("DragExportPlugin: 已添加 JPEG 格式")
             }
             
-            // 提供通用图像类型
-            pasteboardItem.setData(imageData, forType: NSPasteboard.PasteboardType(rawValue: "public.image"))
+            // 添加通用图像类型
+            pasteboardItem.setData(fileData, forType: NSPasteboard.PasteboardType(rawValue: "public.image"))
             NSLog("DragExportPlugin: 已添加通用图像格式")
+            
+            // 添加HTML格式 (适合Mail等)
+            let imageFilename = fileURL.lastPathComponent
+            let htmlString = "<img src=\"\(fileURLString)\" alt=\"\(imageFilename)\">"
+            pasteboardItem.setString(htmlString, forType: NSPasteboard.PasteboardType(rawValue: "public.html"))
+            NSLog("DragExportPlugin: 已添加 HTML 格式")
+            
         } catch {
-            NSLog("DragExportPlugin: 无法读取图像数据: \(error)")
+            NSLog("DragExportPlugin: 读取文件数据失败: \(error)")
+            result(FlutterError(code: "READ_ERROR", 
+                               message: "Failed to read file data", 
+                               details: error.localizedDescription))
+            return
         }
-        
-        // 4. 提供HTML格式 (适合邮件等富文本编辑器)
-        let imageFilename = fileURL.lastPathComponent
-        let htmlString = "<img src=\"file://\(filePath)\" alt=\"\(imageFilename)\">"
-        pasteboardItem.setString(htmlString, forType: NSPasteboard.PasteboardType(rawValue: "public.html"))
-        NSLog("DragExportPlugin: 已添加 HTML 格式")
         
         // 创建拖拽项
         let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
         draggingItem.setDraggingFrame(NSRect(origin: .zero, size: image.size), 
                                      contents: image)
         
-        // 坐标转换
-        NSLog("DragExportPlugin: 转换坐标 (\(originX), \(originY))")
-        let windowPoint = contentView.convert(NSPoint(x: originX, 
-                                                    y: window.frame.height - originY), 
-                                            from: nil)
-        NSLog("DragExportPlugin: 窗口坐标 (\(windowPoint.x), \(windowPoint.y))")
+        // 坐标转换 - 修正坐标问题
+        NSLog("DragExportPlugin: 原始坐标 (\(originX), \(originY))")
+        // 确保y坐标的计算正确 - 使用绝对坐标
+        let screenPoint = NSPoint(x: originX, y: originY)
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        let viewPoint = contentView.convert(windowPoint, from: nil)
+        NSLog("DragExportPlugin: 转换后坐标 - 窗口: (\(windowPoint.x), \(windowPoint.y)), 视图: (\(viewPoint.x), \(viewPoint.y))")
         
-        // 创建鼠标事件
+        // 创建鼠标事件 - 使用转换后的坐标
         guard let mouseEvent = NSEvent.mouseEvent(with: .leftMouseDown,
-                                                location: windowPoint,
+                                                location: viewPoint,
                                                 modifierFlags: [],
                                                 timestamp: 0,
                                                 windowNumber: window.windowNumber,
@@ -146,9 +157,12 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
         
         // 开始拖拽会话
         NSLog("DragExportPlugin: 开始拖拽会话")
-        _ = contentView.beginDraggingSession(with: [draggingItem], 
+        let session = contentView.beginDraggingSession(with: [draggingItem], 
                                             event: mouseEvent, 
                                             source: self)
+        
+        // 设置拖拽图像 - 可选，增强视觉效果
+        session.draggingFormation = .default
         
         NSLog("DragExportPlugin: 拖拽会话已开始 \(filePath)")
         result(true)
@@ -157,26 +171,88 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
     // MARK: - NSDraggingSource 协议实现
     
     public func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        NSLog("DragExportPlugin: draggingSession sourceOperationMaskFor")
-        // 允许复制操作
+        NSLog("DragExportPlugin: draggingSession sourceOperationMaskFor, context: \(context == .outsideApplication ? "外部应用" : "内部应用")")
+        // 无论拖拽到应用内部还是外部，都允许复制操作
+        return [.copy]
+    }
+    
+    // 兼容旧版接口 - 确保在所有macOS版本上工作
+    public func draggingSourceOperationMaskFor(local: Bool) -> NSDragOperation {
+        NSLog("DragExportPlugin: draggingSourceOperationMaskFor(local: \(local))")
         return [.copy]
     }
     
     public func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        NSLog("DragExportPlugin: 拖拽会话结束，操作类型: \(operation.rawValue)")
+        NSLog("DragExportPlugin: 拖拽会话结束，坐标: (\(screenPoint.x), \(screenPoint.y)), 操作类型: \(operation.rawValue)")
         guard let filePath = tempFilePath else { 
             NSLog("DragExportPlugin: 没有临时文件需要清理")
             return 
         }
         
-        do {
-            try FileManager.default.removeItem(atPath: filePath)
-            NSLog("DragExportPlugin: 临时文件已清理 \(filePath)")
-        } catch {
-            NSLog("DragExportPlugin: 清理临时文件失败 \(error.localizedDescription)")
+        // 稍微延迟删除临时文件，确保接收方有足够时间处理
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            do {
+                if FileManager.default.fileExists(atPath: filePath) {
+                    try FileManager.default.removeItem(atPath: filePath)
+                    NSLog("DragExportPlugin: 临时文件已清理 \(filePath)")
+                } else {
+                    NSLog("DragExportPlugin: 临时文件已不存在 \(filePath)")
+                }
+            } catch {
+                NSLog("DragExportPlugin: 清理临时文件失败 \(error.localizedDescription)")
+            }
+            
+            self.tempFilePath = nil
         }
-        
-        tempFilePath = nil
+    }
+}
+
+// MARK: - FilePromiseDelegate类
+
+/// 文件拖拽代理 - 处理文件拖放到Finder的情况
+class FilePromiseDelegate: NSObject, NSFilePromiseProviderDelegate {
+    private let fileName: String
+    private let fileData: Data
+    
+    init(fileName: String, fileData: Data) {
+        self.fileName = fileName
+        self.fileData = fileData
+        super.init()
+    }
+    
+    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
+        return fileName
+    }
+    
+    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL, completionHandler: @escaping (Error?) -> Void) {
+        do {
+            try fileData.write(to: url)
+            NSLog("FilePromiseDelegate: 文件写入成功 \(url.path)")
+            completionHandler(nil)
+        } catch {
+            NSLog("FilePromiseDelegate: 文件写入失败 \(error)")
+            completionHandler(error)
+        }
+    }
+    
+    func operationQueue(for filePromiseProvider: NSFilePromiseProvider) -> OperationQueue {
+        return OperationQueue.main
+    }
+}
+
+// MARK: - UTI辅助函数
+
+/// 根据文件扩展名获取UTI类型
+func UTI(fileExtension: String) -> String {
+    switch fileExtension {
+    case "png":
+        return "public.png"
+    case "jpg", "jpeg":
+        return "public.jpeg"
+    case "pdf":
+        return "com.adobe.pdf"
+    default:
+        return "public.data"
     }
 }
 
@@ -195,7 +271,7 @@ class MainFlutterWindow: NSWindow {
     // 手动注册拖拽导出插件
     let registrar = flutterViewController.registrar(forPlugin: "DragExportPlugin")
     DragExportPlugin.register(with: registrar)
-    NSLog("DragExportPlugin已手动注册")
+    NSLog("DragExportPlugin已手动注册 - 使用MainFlutterWindow中的实现")
 
     super.awakeFromNib()
   }

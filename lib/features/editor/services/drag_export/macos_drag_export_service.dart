@@ -21,12 +21,12 @@ class MacOSDragExportService implements DragExportService {
     _logger.d('正在macOS平台启动拖拽，文件: $filePath, 坐标: ($x, $y)');
 
     try {
-      // 调用原生方法
+      // 调用原生方法 - 确保方法名和参数与Swift端完全匹配
       final bool result = await _channel.invokeMethod<bool>(
-            'startImageDrag', // 确保方法名与原生端匹配
+            'startImageDrag',
             {
               'filePath': filePath,
-              'originX': x, // 确保参数名与原生端匹配
+              'originX': x,
               'originY': y,
             },
           ) ??
