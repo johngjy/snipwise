@@ -73,11 +73,49 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
             return
         }
         
-        // 设置拖拽数据
-        NSLog("DragExportPlugin: 设置拖拽数据")
+        // 设置拖拽数据 - 多格式支持
+        NSLog("DragExportPlugin: 准备多格式拖拽数据")
         let pasteboardItem = NSPasteboardItem()
-        pasteboardItem.setString(filePath, forType: .fileURL)
+        let fileURL = URL(fileURLWithPath: filePath)
+        let fileExtension = fileURL.pathExtension.lowercased()
         
+        // 1. 提供文件URL (适合拖放到Finder)
+        pasteboardItem.setString(filePath, forType: .fileURL)
+        NSLog("DragExportPlugin: 已添加 fileURL 格式")
+        
+        // 2. 提供NSImage格式 (适合拖放到支持NSImage的应用)
+        if let tiffData = image.tiffRepresentation {
+            pasteboardItem.setData(tiffData, forType: .tiff)
+            NSLog("DragExportPlugin: 已添加 TIFF 格式")
+        }
+        
+        // 3. 提供各种图像格式 (PNG, JPEG等)
+        do {
+            let imageData = try Data(contentsOf: fileURL)
+            
+            // 根据文件扩展名提供不同类型
+            if fileExtension == "png" {
+                pasteboardItem.setData(imageData, forType: NSPasteboard.PasteboardType(rawValue: "public.png"))
+                NSLog("DragExportPlugin: 已添加 PNG 格式")
+            } else if fileExtension == "jpg" || fileExtension == "jpeg" {
+                pasteboardItem.setData(imageData, forType: NSPasteboard.PasteboardType(rawValue: "public.jpeg"))
+                NSLog("DragExportPlugin: 已添加 JPEG 格式")
+            }
+            
+            // 提供通用图像类型
+            pasteboardItem.setData(imageData, forType: NSPasteboard.PasteboardType(rawValue: "public.image"))
+            NSLog("DragExportPlugin: 已添加通用图像格式")
+        } catch {
+            NSLog("DragExportPlugin: 无法读取图像数据: \(error)")
+        }
+        
+        // 4. 提供HTML格式 (适合邮件等富文本编辑器)
+        let imageFilename = fileURL.lastPathComponent
+        let htmlString = "<img src=\"file://\(filePath)\" alt=\"\(imageFilename)\">"
+        pasteboardItem.setString(htmlString, forType: NSPasteboard.PasteboardType(rawValue: "public.html"))
+        NSLog("DragExportPlugin: 已添加 HTML 格式")
+        
+        // 创建拖拽项
         let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
         draggingItem.setDraggingFrame(NSRect(origin: .zero, size: image.size), 
                                      contents: image)
@@ -120,11 +158,12 @@ class DragExportPlugin: NSObject, FlutterPlugin, NSDraggingSource {
     
     public func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         NSLog("DragExportPlugin: draggingSession sourceOperationMaskFor")
-        return context == .outsideApplication ? .copy : .copy
+        // 允许复制操作
+        return [.copy]
     }
     
     public func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        NSLog("DragExportPlugin: 拖拽会话结束")
+        NSLog("DragExportPlugin: 拖拽会话结束，操作类型: \(operation.rawValue)")
         guard let filePath = tempFilePath else { 
             NSLog("DragExportPlugin: 没有临时文件需要清理")
             return 
