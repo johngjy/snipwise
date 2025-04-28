@@ -37,9 +37,19 @@ class CaptureResult {
   /// 截图区域
   final CaptureRegion? region;
 
+  /// 截图时的屏幕缩放比例 (Device Pixel Ratio)
+  final double scale;
+
+  /// 逻辑矩形
+  final Rect? logicalRect;
+
   const CaptureResult({
     this.imageBytes,
     this.imagePath,
     this.region,
+    required this.scale,
+    this.logicalRect,
   });
+
+  bool get hasData => imagePath != null || imageBytes != null;
 }

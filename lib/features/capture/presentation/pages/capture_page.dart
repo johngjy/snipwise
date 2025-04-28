@@ -3,27 +3,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // Import for RawKeyboardListener
 import 'package:provider/provider.dart';
 import 'package:logger/logger.dart';
-import 'package:window_manager/window_manager.dart'; // 添加 window_manager 导入
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import '../widgets/toolbar.dart';
 import '../providers/capture_mode_provider.dart';
 import '../../data/models/capture_mode.dart';
-// import '../../../../core/services/window_service.dart'; // Unused import
 import '../../../../core/widgets/standard_app_bar.dart'; // 导入标准化顶部栏
 import '../../services/capture_service.dart';
 import '../../../../core/services/window_service.dart'; // 重新导入窗口服务
 import '../../services/long_screenshot_service.dart'; // 导入长截图服务
-import '../widgets/capture_menu_item.dart';
 import '../widgets/delay_menu.dart';
 import '../widgets/video_menu.dart';
-// import '../../data/models/capture_result.dart'; // Unused import - REMOVE
-// import '../../../hires_capture/presentation/providers/hires_capture_provider.dart'; // Unused import - REMOVE
-// import 'package:path/path.dart' as path; // Unused import - REMOVE
-// import 'package:path_provider/path_provider.dart'; // Unused import - REMOVE
+import 'package:path_provider/path_provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'dart:async';
 
 /// 截图选择页面 - 打开软件时显示的主页面
 class CapturePage extends StatefulWidget {
-  const CapturePage({super.key});
+  final CaptureMode? initialCaptureMode;
+  const CapturePage({super.key, this.initialCaptureMode});
 
   @override
   State<CapturePage> createState() => _CapturePageState();
@@ -67,21 +65,38 @@ class _CapturePageState extends State<CapturePage> {
   int _windowSizeAdjustAttempts = 0;
   static const int _maxWindowAdjustAttempts = 3;
 
-  /// 获取基于操作系统的快捷键提示文本
-  String get _shortcutPromptText {
-    if (Platform.isMacOS) {
-      return 'Press Command + Shift + 4 to take a screenshot';
-    } else if (Platform.isWindows) {
-      return 'Press Win + Shift + S to take a screenshot';
-    } else {
-      // 默认文本，可以根据其他平台扩展
-      return 'Press shortcut keys to take a screenshot';
-    }
+  // 菜单项配置列表 - 集中管理所有菜单项
+  late final List<MenuItemConfig> _menuItems;
+
+  // Make fields final since they're only set once
+  final bool _isCapturing = false;
+  final int _captureDelay = 0;
+  final CaptureMode _selectedMode = CaptureMode.rectangle;
+  Timer? _delayMenuHideTimer; // Add timer for delay menu
+  Timer? _videoMenuHideTimer; // Add timer for video menu
+
+  /// 获取实际菜单项高度 - 从组件构建方法中提取
+  double get _actualMenuItemHeight {
+    // 从_buildMenuItem方法中的padding和内容高度计算
+    const double verticalPadding = 4.0 * 2; // Padding.symmetric(vertical: 4.0)
+    const double containerPadding = 12.0 * 2; // 内部Container的vertical: 12.0
+    const double iconHeight = 22.0; // 图标高度
+    // 菜单项实际高度 = 外部padding + 内部padding + 图标高度(至少内容高度)
+    return verticalPadding + containerPadding + iconHeight;
+  }
+
+  /// 获取菜单项之间的间距 - 从实际构建方法中提取
+  double get _actualMenuItemGap {
+    // 在ListView中的padding和各菜单项之间的间距
+    return 8.0; // ListView padding设置的vertical值
   }
 
   @override
   void initState() {
     super.initState();
+
+    // 初始化菜单项配置
+    _initMenuItems();
 
     // 在第一帧渲染后请求焦点和调整窗口大小
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -93,6 +108,94 @@ class _CapturePageState extends State<CapturePage> {
         _adjustWindowSize();
       }
     });
+  }
+
+  /// 初始化菜单项配置
+  void _initMenuItems() {
+    _menuItems = [
+      // 区域截图
+      MenuItemConfig(
+        icon: PhosphorIcons.squaresFour(PhosphorIconsStyle.light),
+        label: 'Capture area',
+        shortcut: Platform.isMacOS ? '⌘2' : 'Ctrl+2',
+        onTap: () => _triggerCapture(CaptureMode.region),
+      ),
+
+      // 窗口截图
+      MenuItemConfig(
+        icon: PhosphorIcons.browser(PhosphorIconsStyle.light),
+        label: 'Window',
+        shortcut: Platform.isMacOS ? '⌘3' : 'Ctrl+3',
+        onTap: () => _triggerCapture(CaptureMode.window),
+      ),
+
+      // 全屏截图
+      MenuItemConfig(
+        icon: PhosphorIcons.monitorPlay(PhosphorIconsStyle.light),
+        label: 'Full Screen',
+        shortcut: Platform.isMacOS ? '⌘4' : 'Ctrl+4',
+        onTap: () => _triggerCapture(CaptureMode.fullscreen),
+      ),
+
+      // 视频录制
+      MenuItemConfig(
+        icon: PhosphorIcons.filmStrip(PhosphorIconsStyle.light),
+        label: 'Video & GIF',
+        showRightArrow: true,
+        useLayerLink: true,
+        layerLinkKey: 'video',
+        onTap: _showVideoMenu,
+      ),
+
+      // 滚动截图
+      MenuItemConfig(
+        icon: PhosphorIcons.arrowsOutLineVertical(PhosphorIconsStyle.light),
+        label: 'Scrolling Capture',
+        onTap: _captureLongScreenshot,
+      ),
+
+      // OCR识别
+      MenuItemConfig(
+        icon: PhosphorIcons.textT(PhosphorIconsStyle.light),
+        label: 'OCR',
+        onTap: _performOCR,
+      ),
+
+      // 延时截图
+      MenuItemConfig(
+        icon: PhosphorIcons.clock(PhosphorIconsStyle.light),
+        label: 'Delay',
+        showRightArrow: true,
+        useLayerLink: true,
+        layerLinkKey: 'delay',
+        onTap: _showDelayMenu,
+      ),
+
+      // 打开图片
+      MenuItemConfig(
+        icon: PhosphorIcons.folderOpen(PhosphorIconsStyle.light),
+        label: 'Open',
+        onTap: _openImage,
+      ),
+
+      // 历史记录
+      MenuItemConfig(
+        icon: PhosphorIcons.clockCounterClockwise(PhosphorIconsStyle.light),
+        label: 'History',
+        onTap: _showHistory,
+      ),
+
+      // 设置
+      MenuItemConfig(
+        icon: PhosphorIcons.gear(PhosphorIconsStyle.light),
+        label: 'Setting',
+        onTap: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('设置功能待实现')),
+          );
+        },
+      ),
+    ];
   }
 
   /// 调整窗口大小
@@ -108,8 +211,28 @@ class _CapturePageState extends State<CapturePage> {
 
     _windowSizeAdjustAttempts++;
 
-    // 设置固定窗口大小，符合设计规格
-    WindowService.instance.resizeWindow(const Size(300, 550));
+    // 菜单项相关尺寸计算 - 直接从实际UI元素中获取
+    final int menuItemCount = _menuItems.length; // 总菜单项数量
+    final double menuItemHeight = _actualMenuItemHeight; // 从组件获取实际高度
+    final double menuItemGap = _actualMenuItemGap; // 从组件获取实际间距
+
+    // 标准应用栏高度 - 从StandardAppBar组件获取
+    const double topBarHeight = 30.0; // StandardAppBar设置的height值
+
+    // 窗口内边距 - 确保有足够的上下空间，但不要过多
+    const double windowPadding = 8.0; // 减小窗口内边距
+
+    // 动态计算窗口高度 = 顶部栏 + 所有菜单项高度和间距 + 窗口内边距
+    final double calculatedHeight = topBarHeight +
+        (menuItemHeight * menuItemCount) +
+        (menuItemGap * (menuItemCount - 1)) +
+        windowPadding;
+
+    _logger.d(
+        '动态计算窗口高度: 顶部栏($topBarHeight) + 菜单项(${menuItemHeight}*$menuItemCount) + 间距(${menuItemGap}*${menuItemCount - 1}) + 内边距($windowPadding) = $calculatedHeight px');
+
+    // 设置窗口大小，宽度保持固定，高度动态计算
+    WindowService.instance.resizeWindow(Size(300, calculatedHeight));
     _hasAdjustedWindowSize = true;
   }
 
@@ -117,13 +240,15 @@ class _CapturePageState extends State<CapturePage> {
   void dispose() {
     _hideDelayMenu();
     _hideVideoMenu();
+    _delayMenuHideTimer?.cancel(); // Cancel delay timer
+    _videoMenuHideTimer?.cancel(); // Cancel video timer
     _focusNode.dispose();
     super.dispose();
   }
 
   /// 显示延时菜单
   void _showDelayMenu() {
-    _hideVideoMenu(); // 确保其他菜单隐藏
+    _hideVideoMenu(); // Ensure other menus are hidden
 
     if (_delayOverlayEntry != null) {
       _hideDelayMenu();
@@ -132,17 +257,22 @@ class _CapturePageState extends State<CapturePage> {
 
     _delayOverlayEntry = OverlayEntry(
       builder: (context) => Positioned(
-        width: 200,
+        width: 120,
         child: CompositedTransformFollower(
           link: _delayLayerLink,
-          offset: const Offset(300, 0), // 在右侧显示
-          child: DelayMenu(
-            onDelay3Seconds: () =>
-                _handleDelaySelection(const Duration(seconds: 3)),
-            onDelay5Seconds: () =>
-                _handleDelaySelection(const Duration(seconds: 5)),
-            onDelay10Seconds: () =>
-                _handleDelaySelection(const Duration(seconds: 10)),
+          showWhenUnlinked: false,
+          offset: const Offset(0, 40), // Position below the button
+          child: MouseRegion(
+            onEnter: (event) => _cancelDelayMenuHideTimer(),
+            onExit: (event) => _startDelayMenuHideTimer(),
+            child: DelayMenu(
+              onDelaySelected: (delayInSeconds) {
+                final Duration delayDuration =
+                    Duration(seconds: delayInSeconds);
+                _delayCapture(delayDuration);
+                _hideDelayMenu();
+              },
+            ),
           ),
         ),
       ),
@@ -156,7 +286,7 @@ class _CapturePageState extends State<CapturePage> {
 
   /// 显示视频菜单
   void _showVideoMenu() {
-    _hideDelayMenu(); // 确保其他菜单隐藏
+    _hideDelayMenu(); // Ensure other menus are hidden
 
     if (_videoOverlayEntry != null) {
       _hideVideoMenu();
@@ -168,15 +298,20 @@ class _CapturePageState extends State<CapturePage> {
         width: 200,
         child: CompositedTransformFollower(
           link: _videoLayerLink,
-          offset: const Offset(300, 0), // 在右侧显示
-          child: VideoMenu(
-            onVideoCapture: _captureVideo,
-            onGifCapture: () {
-              _hideVideoMenu();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('GIF录制功能待实现')),
-              );
-            },
+          offset: const Offset(300, 0), // Position to the right
+          child: MouseRegion(
+            onEnter: (event) => _cancelVideoMenuHideTimer(),
+            onExit: (event) => _startVideoMenuHideTimer(),
+            child: VideoMenu(
+              onVideoCapture: _captureVideo,
+              onGifCapture: () {
+                _hideVideoMenu();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('GIF recording feature pending')),
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -190,6 +325,7 @@ class _CapturePageState extends State<CapturePage> {
 
   /// 隐藏延时菜单
   void _hideDelayMenu() {
+    _delayMenuHideTimer?.cancel(); // Cancel timer when hiding
     _delayOverlayEntry?.remove();
     _delayOverlayEntry = null;
     if (mounted) {
@@ -201,6 +337,7 @@ class _CapturePageState extends State<CapturePage> {
 
   /// 隐藏视频菜单
   void _hideVideoMenu() {
+    _videoMenuHideTimer?.cancel(); // Cancel timer when hiding
     _videoOverlayEntry?.remove();
     _videoOverlayEntry = null;
     if (mounted) {
@@ -211,7 +348,7 @@ class _CapturePageState extends State<CapturePage> {
   }
 
   /// 处理延时选择
-  void _handleDelaySelection(Duration delay) {
+  void _delayCapture(Duration delay) {
     _hideDelayMenu();
     if (mounted) {
       final provider = context.read<CaptureModeProvider>();
@@ -227,7 +364,7 @@ class _CapturePageState extends State<CapturePage> {
       focusNode: _focusNode,
       onKeyEvent: _handleKeyEvent,
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFEAEAEA), // 灰色背景，与设计图一致
         body: GestureDetector(
           onTap: () {
             _hideDelayMenu();
@@ -236,117 +373,12 @@ class _CapturePageState extends State<CapturePage> {
           child: Column(
             key: _containerKey,
             children: [
-              // 使用标准化顶部栏 - 只显示标题和控制按钮
-              StandardAppBar(
-                backgroundColor: Colors.white,
-                centerTitle: true,
-                forceShowWindowControls: true,
-              ),
+              // 使用自定义顶部栏，实现跨平台一致的系统按钮样式
+              _buildCustomTitleBar(),
 
               // 主菜单区域
               Expanded(
-                child: Container(
-                  color: Colors.white,
-                  child: Consumer<CaptureModeProvider>(
-                    builder: (context, provider, child) => ListView(
-                      padding: const EdgeInsets.symmetric(vertical: 10.0),
-                      children: [
-                        // 区域截图
-                        CaptureMenuItem(
-                          icon: PhosphorIcons.squaresFour(
-                              PhosphorIconsStyle.light),
-                          label: 'Capture area',
-                          shortcut: Platform.isMacOS ? '⌘2' : 'Ctrl+2',
-                          onTap: () => _triggerCapture(CaptureMode.region),
-                        ),
-
-                        // 窗口截图
-                        CaptureMenuItem(
-                          icon: PhosphorIcons.browser(PhosphorIconsStyle.light),
-                          label: 'Window',
-                          shortcut: Platform.isMacOS ? '⌘3' : 'Ctrl+3',
-                          onTap: () => _triggerCapture(CaptureMode.window),
-                        ),
-
-                        // 全屏截图
-                        CaptureMenuItem(
-                          icon: PhosphorIcons.monitorPlay(
-                              PhosphorIconsStyle.light),
-                          label: 'Full Screen',
-                          shortcut: Platform.isMacOS ? '⌘4' : 'Ctrl+4',
-                          onTap: () => _triggerCapture(CaptureMode.fullscreen),
-                        ),
-
-                        // 视频录制
-                        CompositedTransformTarget(
-                          link: _videoLayerLink,
-                          child: CaptureMenuItem(
-                            icon: PhosphorIcons.filmStrip(
-                                PhosphorIconsStyle.light),
-                            label: 'Video & GIF',
-                            showRightArrow: true,
-                            isSelected: _isVideoMenuVisible,
-                            onTap: _showVideoMenu,
-                          ),
-                        ),
-
-                        // 滚动截图
-                        CaptureMenuItem(
-                          icon: PhosphorIcons.arrowsOutLineVertical(
-                              PhosphorIconsStyle.light),
-                          label: 'Scrolling Capture',
-                          onTap: _captureLongScreenshot,
-                        ),
-
-                        // OCR识别
-                        CaptureMenuItem(
-                          icon: PhosphorIcons.textT(PhosphorIconsStyle.light),
-                          label: 'OCR',
-                          onTap: _performOCR,
-                        ),
-
-                        // 延时截图
-                        CompositedTransformTarget(
-                          link: _delayLayerLink,
-                          child: CaptureMenuItem(
-                            icon: PhosphorIcons.clock(PhosphorIconsStyle.light),
-                            label: 'Delay',
-                            showRightArrow: true,
-                            isSelected: _isDelayMenuVisible,
-                            onTap: _showDelayMenu,
-                          ),
-                        ),
-
-                        // 打开图片
-                        CaptureMenuItem(
-                          icon: PhosphorIcons.folderOpen(
-                              PhosphorIconsStyle.light),
-                          label: 'Open',
-                          onTap: _openImage,
-                        ),
-
-                        // 历史记录
-                        CaptureMenuItem(
-                          icon: PhosphorIcons.clockCounterClockwise(
-                              PhosphorIconsStyle.light),
-                          label: 'History',
-                          onTap: _showHistory,
-                        ),
-
-                        // 设置
-                        CaptureMenuItem(
-                          icon: PhosphorIcons.gear(PhosphorIconsStyle.light),
-                          label: 'Setting',
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('设置功能待实现')),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                child: _buildMenuList(),
               ),
 
               // 底部加载指示器（如果正在加载）
@@ -356,6 +388,134 @@ class _CapturePageState extends State<CapturePage> {
                   child: const CircularProgressIndicator(strokeWidth: 2.0),
                 ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 构建自定义顶部栏
+  Widget _buildCustomTitleBar() {
+    return StandardAppBar(
+      centerTitle: true,
+      backgroundColor: const Color(0xFFEAEAEA),
+      titleColor: Colors.grey[800]!,
+    );
+  }
+
+  /// 构建菜单列表
+  Widget _buildMenuList() {
+    return Container(
+      color: const Color(0xFFEAEAEA), // 确保背景色与父容器一致
+      child: Consumer<CaptureModeProvider>(
+        builder: (context, provider, child) => ListView.builder(
+          // 减少顶部边距，让菜单项更紧凑
+          padding: const EdgeInsets.fromLTRB(10.0, 0.0, 10.0, 2.0),
+          itemCount: _menuItems.length,
+          itemBuilder: (context, index) {
+            final item = _menuItems[index];
+
+            // 处理需要使用LayerLink的特殊菜单项
+            if (item.useLayerLink) {
+              return CompositedTransformTarget(
+                link: item.layerLinkKey == 'delay'
+                    ? _delayLayerLink
+                    : _videoLayerLink,
+                child: _buildMenuItem(
+                  icon: item.icon,
+                  label: item.label,
+                  showRightArrow: item.showRightArrow,
+                  isSelected: item.layerLinkKey == 'delay'
+                      ? _isDelayMenuVisible
+                      : _isVideoMenuVisible,
+                  onTap: item.onTap,
+                ),
+              );
+            }
+
+            // 常规菜单项
+            return _buildMenuItem(
+              icon: item.icon,
+              label: item.label,
+              shortcut: item.shortcut,
+              onTap: item.onTap,
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// 构建自定义菜单项 - 完全符合设计图风格
+  Widget _buildMenuItem({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    String? shortcut,
+    bool showRightArrow = false,
+    bool isSelected = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Material(
+        color: Colors.white, // 纯白色背景
+        borderRadius: BorderRadius.circular(8),
+        elevation: 0.5,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
+            width: double.infinity,
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 22.0,
+                  color: Colors.black87,
+                ),
+                const SizedBox(width: 12.0),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 16.0,
+                      fontWeight: FontWeight.w400,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+                if (shortcut != null)
+                  Container(
+                    padding: const EdgeInsets.only(right: 4.0),
+                    child: Row(
+                      children: [
+                        // 向上箭头
+                        Icon(
+                          Icons.arrow_upward,
+                          size: 12.0,
+                          color: Colors.grey[600],
+                        ),
+                        Text(
+                          shortcut,
+                          style: TextStyle(
+                            fontSize: 14.0,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (showRightArrow)
+                  Icon(
+                    Icons.chevron_right,
+                    size: 22.0,
+                    color: Colors.grey[600],
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -468,52 +628,65 @@ class _CapturePageState extends State<CapturePage> {
             duration: Duration(seconds: 1),
           ),
         );
+      } else {
+        setState(() {
+          _isLoadingCapture = false;
+        });
+        return;
       }
 
       // 短暂延迟，让用户有时间准备
       await Future.delayed(const Duration(seconds: 1));
+
+      if (!mounted) {
+        _logger.w('Page unmounted during long screenshot preparation delay.');
+        return;
+      }
 
       // 调用长截图服务
       final result = await LongScreenshotService.instance.captureLongScreenshot(
         context: context,
       );
 
+      if (!mounted) return;
+
       if (result != null) {
         _logger.i('长截图完成，图片路径: ${result.path}');
 
         // 显示成功消息
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('长截图已完成，正在打开编辑器...')),
-          );
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('长截图已完成，正在打开编辑器...')),
+        );
 
-          // 导航到编辑器页面
-          await Navigator.pushNamed(
-            context,
-            '/editor',
-            arguments: {
-              'imagePath': result.path,
-              'imageBytes': await result.readAsBytes(),
-            },
-          );
-        }
+        // Read bytes before navigation check
+        final imageBytes = await result.readAsBytes();
+
+        // Final mount check before navigation
+        if (!mounted) return;
+
+        // 导航到编辑器页面
+        await Navigator.pushNamed(
+          context,
+          '/editor',
+          arguments: {
+            'imageBytes': imageBytes,
+          },
+        );
       } else {
         _logger.w('长截图操作未完成或被取消');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('长截图操作未完成'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('长截图操作未完成'),
+            duration: Duration(seconds: 3),
+          ),
+        );
       }
     } catch (e, stackTrace) {
       _logger.e('长截图过程中发生错误', error: e, stackTrace: stackTrace);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('长截图失败: ${e.toString()}'),
+            content: Text('长截图失败: $e'),
             duration: const Duration(seconds: 5),
           ),
         );
@@ -581,4 +754,49 @@ class _CapturePageState extends State<CapturePage> {
       }
     }
   }
+
+  // --- Timer Methods ---
+
+  void _startDelayMenuHideTimer() {
+    _delayMenuHideTimer?.cancel();
+    _delayMenuHideTimer = Timer(const Duration(milliseconds: 300), () {
+      _hideDelayMenu();
+    });
+  }
+
+  void _cancelDelayMenuHideTimer() {
+    _delayMenuHideTimer?.cancel();
+  }
+
+  void _startVideoMenuHideTimer() {
+    _videoMenuHideTimer?.cancel();
+    _videoMenuHideTimer = Timer(const Duration(milliseconds: 300), () {
+      _hideVideoMenu();
+    });
+  }
+
+  void _cancelVideoMenuHideTimer() {
+    _videoMenuHideTimer?.cancel();
+  }
+}
+
+/// 菜单项配置类 - 封装单个菜单项的所有属性
+class MenuItemConfig {
+  final IconData icon;
+  final String label;
+  final String? shortcut;
+  final VoidCallback onTap;
+  final bool showRightArrow;
+  final bool useLayerLink;
+  final String? layerLinkKey;
+
+  const MenuItemConfig({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.shortcut,
+    this.showRightArrow = false,
+    this.useLayerLink = false,
+    this.layerLinkKey,
+  });
 }

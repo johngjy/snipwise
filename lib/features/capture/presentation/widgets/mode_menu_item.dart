@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../data/models/capture_mode.dart'; // Import CaptureMode
 
 /// Mode 悬停菜单中的单个选项项 Widget
 class ModeMenuItem extends StatelessWidget {
@@ -6,6 +7,7 @@ class ModeMenuItem extends StatelessWidget {
   final String label;
   final bool isSelected;
   final VoidCallback onTap;
+  final CaptureMode mode; // Add CaptureMode field
 
   const ModeMenuItem({
     super.key,
@@ -13,6 +15,7 @@ class ModeMenuItem extends StatelessWidget {
     required this.label,
     required this.isSelected,
     required this.onTap,
+    required this.mode, // Require mode in constructor
   });
 
   @override

@@ -1,18 +1,17 @@
 import 'dart:async';
-// import 'dart:ui' as ui; // Unused import
 import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as path;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:window_manager/window_manager.dart' show WindowManager;
 import 'package:logger/logger.dart';
 import 'package:screen_capturer/screen_capturer.dart' as screen_capturer;
+import 'package:path_provider/path_provider.dart';
+import 'package:window_manager/window_manager.dart';
+import 'package:path/path.dart' as p;
+
 import '../data/models/capture_mode.dart';
 import '../data/models/capture_result.dart';
-// import '../presentation/widgets/freeform_selection.dart'; // Unused import
-// import '../presentation/widgets/screenshot_preview.dart'; // Unused import
-// import 'dart:math' as math; // Unused import
 
 /// 截图服务类
 class CaptureService {
@@ -44,7 +43,9 @@ class CaptureService {
   Future<String> _getTemporaryFilePath() async {
     final tempDir = await getTemporaryDirectory();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    return path.join(tempDir.path, 'screenshot_$timestamp.png');
+    final filePath = p.join(tempDir.path, 'screenshot_$timestamp.png');
+    _logger.d('Generated temporary file path: $filePath');
+    return filePath;
   }
 
   /// 辅助方法：隐藏窗口用于截图
@@ -97,6 +98,20 @@ class CaptureService {
     }
   }
 
+  /// 获取当前的设备像素比
+  double _getCurrentDevicePixelRatio() {
+    try {
+      // 优先使用 WidgetsBinding 获取当前视图的 DPR
+      final scale = WidgetsBinding
+          .instance.platformDispatcher.views.first.devicePixelRatio;
+      _logger.d('Retrieved device pixel ratio: $scale');
+      return scale;
+    } catch (e) {
+      _logger.e('Failed to get device pixel ratio: $e. Defaulting to 1.0');
+      return 1.0;
+    }
+  }
+
   /// 执行截图，根据模式调用对应的内部实现方法
   Future<CaptureResult?> capture(CaptureMode mode,
       {Size? fixedSize, Duration? delay}) async {
@@ -135,14 +150,13 @@ class CaptureService {
     // 根据不同的模式调用相应的内部实现方法
     switch (mode) {
       case CaptureMode.region:
-      case CaptureMode.rectangle:
-        return _captureRegionInternal();
+        return await _captureRegionInternal();
 
       case CaptureMode.window:
-        return _captureWindowInternal();
+        return await _captureWindowInternal();
 
       case CaptureMode.fullscreen:
-        return _captureFullscreenInternal();
+        return await _captureFullscreenInternal();
 
       case CaptureMode.freeform:
         _logger.w('Freeform capture not yet implemented');
@@ -165,15 +179,15 @@ class CaptureService {
         _logger.w('Fixed size capture not yet implemented');
         return null;
 
-      // Removed unreachable default case
-      // default:
-      //   _logger.e('Unknown capture mode: $mode');
-      //   return null;
+      default:
+        _logger.w('Unsupported capture mode: $mode');
+        return null;
     }
   }
 
   /// 全屏截图 - 内部实现
   Future<CaptureResult?> _captureFullscreenInternal() async {
+    final double currentScale = _getCurrentDevicePixelRatio();
     const String modeLabel = 'fullscreen';
     _logger.d('Starting $modeLabel capture (internal)...');
     final tempFilePath = await _getTemporaryFilePath();
@@ -264,9 +278,9 @@ class CaptureService {
         return null;
       }
 
-      // 8. 构建并返回 CaptureResult (保持不变)
+      // 8. 构建并返回 CaptureResult
       _logger.d(
-          'Fullscreen capture successful. Image size: ${imageBytes.length} bytes.');
+          'Fullscreen capture successful. Image size: ${imageBytes.length} bytes. Scale: $currentScale');
       return CaptureResult(
         imageBytes: imageBytes,
         imagePath: imagePath,
@@ -276,6 +290,7 @@ class CaptureService {
           width: capturedData.imageWidth?.toDouble() ?? 0.0,
           height: capturedData.imageHeight?.toDouble() ?? 0.0,
         ),
+        scale: currentScale,
       );
     } catch (e, stackTrace) {
       _logger.e('Error during $modeLabel capture internal process',
@@ -289,6 +304,7 @@ class CaptureService {
 
   /// 窗口截图 - 内部实现
   Future<CaptureResult?> _captureWindowInternal() async {
+    final double currentScale = _getCurrentDevicePixelRatio();
     const String modeLabel = 'window';
     _logger.d('Starting $modeLabel capture (internal)...');
     final tempFilePath = await _getTemporaryFilePath();
@@ -379,19 +395,19 @@ class CaptureService {
         return null;
       }
 
-      // 8. 构建并返回 CaptureResult (保持不变)
+      // 8. 构建并返回 CaptureResult
       _logger.d(
-          'Window capture successful. Image size: ${imageBytes.length} bytes.');
+          'Window capture successful. Image size: ${imageBytes.length} bytes. Scale: $currentScale');
       return CaptureResult(
         imageBytes: imageBytes,
         imagePath: imagePath,
-        // 窗口截图返回的是目标窗口的图像
         region: CaptureRegion(
           x: 0,
           y: 0,
-          width: capturedData.imageWidth?.toDouble() ?? 0.0, // 使用插件返回的宽度
-          height: capturedData.imageHeight?.toDouble() ?? 0.0, // 使用插件返回的高度
+          width: capturedData.imageWidth?.toDouble() ?? 0.0,
+          height: capturedData.imageHeight?.toDouble() ?? 0.0,
         ),
+        scale: currentScale,
       );
     } catch (e, stackTrace) {
       _logger.e('Error during $modeLabel capture internal process',
@@ -405,17 +421,21 @@ class CaptureService {
 
   /// 区域截图 - 内部实现
   Future<CaptureResult?> _captureRegionInternal() async {
+    final double currentScale = _getCurrentDevicePixelRatio();
     const String modeLabel = 'region';
     _logger.d('Starting $modeLabel capture (internal)...');
     final tempFilePath = await _getTemporaryFilePath();
     _logger.d('Target temporary file: $tempFilePath');
+    _logger.d('Current screen scale (DPR): $currentScale');
 
     bool windowHidden = false;
     try {
-      // 1. 检查权限 (保持不变)
+      // 1. 检查权限
       try {
         final isAccessAllowed =
             await screen_capturer.ScreenCapturer.instance.isAccessAllowed();
+        _logger.d('Screen capture access allowed: $isAccessAllowed');
+
         if (!isAccessAllowed) {
           _logger.w(
               'No screen capture permission before capture. Requesting access...');
@@ -437,10 +457,10 @@ class CaptureService {
       // 2. 隐藏窗口
       windowHidden = await _hideWindowForCapture(modeLabel);
 
-      // 3. 延迟 (保持不变)
+      // 3. 延迟
       await Future.delayed(const Duration(milliseconds: 500));
 
-      // 4. 调用 screen_capturer (保持不变)
+      // 4. 调用 screen_capturer
       _logger.d('Calling screen_capturer.capture(mode: region)...');
       final capturedData =
           await screen_capturer.ScreenCapturer.instance.capture(
@@ -450,7 +470,7 @@ class CaptureService {
         silent: false,
       );
 
-      // 5. 处理截图结果 (保持不变)
+      // 5. 处理截图结果
       if (capturedData == null) {
         _logger.i('Region capture cancelled by user or failed (null data).');
         return null; // 用户可能取消了选择
@@ -461,6 +481,23 @@ class CaptureService {
 
       Uint8List? imageBytes = capturedData.imageBytes;
       String imagePath = capturedData.imagePath ?? tempFilePath;
+
+      // 获取物理像素位置和尺寸
+      double physicalX = 0;
+      double physicalY = 0;
+      double physicalWidth = capturedData.imageWidth?.toDouble() ?? 0.0;
+      double physicalHeight = capturedData.imageHeight?.toDouble() ?? 0.0;
+
+      // 计算逻辑矩形 - 将物理像素坐标转换为逻辑坐标
+      Rect? logicalRect;
+      if (physicalWidth > 0 && physicalHeight > 0) {
+        logicalRect = Rect.fromLTWH(
+            physicalX / currentScale,
+            physicalY / currentScale,
+            physicalWidth / currentScale,
+            physicalHeight / currentScale);
+        _logger.d('Calculated logical rect: $logicalRect');
+      }
 
       // 6. 检查图像数据，如果直接返回的数据为空，尝试从文件读取
       if (imageBytes == null || imageBytes.isEmpty) {
@@ -494,19 +531,20 @@ class CaptureService {
         return null;
       }
 
-      // 8. 构建并返回 CaptureResult (保持不变)
+      // 8. 构建并返回 CaptureResult
       _logger.d(
-          'Region capture successful. Image size: ${imageBytes.length} bytes.');
+          'Region capture successful. Image size: ${imageBytes.length} bytes. Scale: $currentScale');
       return CaptureResult(
         imageBytes: imageBytes,
         imagePath: imagePath,
-        // 对于区域截图，返回的图像通常就是选定区域本身
         region: CaptureRegion(
           x: 0,
           y: 0,
-          width: capturedData.imageWidth?.toDouble() ?? 0.0,
-          height: capturedData.imageHeight?.toDouble() ?? 0.0,
+          width: physicalWidth,
+          height: physicalHeight,
         ),
+        scale: currentScale,
+        logicalRect: logicalRect,
       );
     } catch (e, stackTrace) {
       _logger.e('Error during $modeLabel capture internal process',
@@ -589,34 +627,32 @@ class CaptureService {
   }
 
   /// 导航到编辑页面
-  void _navigateToEditor(BuildContext context, CaptureResult result) {
+  Future<bool> _navigateToEditor(
+    BuildContext context,
+    CaptureResult result,
+  ) async {
     try {
-      // 确保我们有有效的 context
       if (!context.mounted) {
-        _logger.e('Cannot navigate to editor, context is unmounted.');
-        return;
+        _logger.e('Context is not mounted. Cannot navigate to editor.');
+        return false;
       }
 
-      // 使用 Navigator 导航到编辑页面
-      Navigator.pushNamed(
-        context,
-        '/editor', // 根据您的路由配置调整路由名称
-        arguments: {
-          'imageData': result.imageBytes,
-          'imagePath': result.imagePath,
-          'region': result.region,
-        },
-      );
+      _logger.d(
+          'Navigating to editor with image data of ${result.imageBytes?.length} bytes, scale: ${result.scale}, logicalRect: ${result.logicalRect}');
 
-      _logger.d('Navigated to editor page with screenshot data.');
+      final args = {
+        'imageData': result.imageBytes,
+        'imagePath': result.imagePath,
+        'scale': result.scale,
+        'logicalRect': result.logicalRect,
+      };
+
+      Navigator.of(context).pushNamed('/editor', arguments: args);
+      return true;
     } catch (e, stackTrace) {
-      _logger.e('Error navigating to editor page',
+      _logger.e('Failed to navigate to editor',
           error: e, stackTrace: stackTrace);
-
-      // 向用户显示错误
-      if (context.mounted) {
-        _showErrorDialog(context, '无法打开编辑器: ${e.toString()}');
-      }
+      return false;
     }
   }
 

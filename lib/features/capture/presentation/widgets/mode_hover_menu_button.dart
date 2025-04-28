@@ -92,7 +92,7 @@ class _ModeHoverMenuButtonState extends State<ModeHoverMenuButton> {
         borderRadius: BorderRadius.circular(8),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withAlpha(26), // 0.1 opacity = 26 alpha
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -112,6 +112,7 @@ class _ModeHoverMenuButtonState extends State<ModeHoverMenuButton> {
               widget.onCaptureRectangle();
               _removeOverlay();
             },
+            mode: CaptureMode.rectangle,
           ),
           ModeMenuItem(
             icon: PhosphorIcons.monitorPlay(PhosphorIconsStyle.light),
@@ -123,6 +124,7 @@ class _ModeHoverMenuButtonState extends State<ModeHoverMenuButton> {
               widget.onCaptureFullscreen();
               _removeOverlay();
             },
+            mode: CaptureMode.fullscreen,
           ),
           ModeMenuItem(
             icon: PhosphorIcons.browser(PhosphorIconsStyle.light),
@@ -134,6 +136,7 @@ class _ModeHoverMenuButtonState extends State<ModeHoverMenuButton> {
               widget.onCaptureWindow();
               _removeOverlay();
             },
+            mode: CaptureMode.window,
           ),
         ],
       ),

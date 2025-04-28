@@ -20,12 +20,12 @@ class VideoMenu extends StatelessWidget {
       width: 200,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+            color: Colors.black.withAlpha(38),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -33,7 +33,7 @@ class VideoMenu extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildVideoOption('Video Recording', onVideoCapture),
-          const Divider(height: 1),
+          const Divider(height: 1, thickness: 0.5),
           _buildVideoOption('GIF Recording', onGifCapture),
         ],
       ),
@@ -49,7 +49,7 @@ class VideoMenu extends StatelessWidget {
         child: Text(
           text,
           style: const TextStyle(
-            fontSize: 16.0,
+            fontSize: 14.0,
             fontWeight: FontWeight.w400,
             color: Colors.black87,
           ),

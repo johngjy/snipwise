@@ -98,7 +98,7 @@ class _ToolbarState extends State<Toolbar> {
   Widget build(BuildContext context) {
     return IntrinsicWidth(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 5),
+        padding: const EdgeInsets.symmetric(vertical: 1),
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(

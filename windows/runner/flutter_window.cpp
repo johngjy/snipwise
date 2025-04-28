@@ -1,8 +1,16 @@
 #include "flutter_window.h"
 
+#include <flutter/event_channel.h>
+#include <flutter/event_sink.h>
+#include <flutter/event_stream_handler_functions.h>
+#include <flutter/standard_method_codec.h>
+#include <windows.h>
+
+#include <memory>
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "win32_drag_handler.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -25,6 +33,11 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  
+  // 注册自定义插件 - 拖拽处理器
+  Win32DragHandler::RegisterWithRegistrar(
+      flutter_controller_->engine()->GetRegistrarForPlugin("Win32DragHandler"));
+  
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {

@@ -32,6 +32,10 @@ class AppDelegate: FlutterAppDelegate {
       window.isMovableByWindowBackground = true
     }
     
+    // 注册拖拽图像处理插件
+    let registrar = self.registrar(forPlugin: "DragImageHandler")
+    DragImageHandler.register(with: registrar!)
+    
     super.applicationDidFinishLaunching(notification)
   }
 }

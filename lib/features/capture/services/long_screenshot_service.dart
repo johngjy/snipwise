@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui' as ui;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,7 +7,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:image/image.dart' as img;
 import 'package:logger/logger.dart';
 import 'package:path/path.dart' as path;
-import '../data/models/capture_mode.dart' as app_mode;
 import 'package:window_manager/window_manager.dart';
 
 /// 长截图服务 - 处理滚动截图并拼接
@@ -144,12 +142,14 @@ class LongScreenshotService {
       _logger.i('正在等待用户选择要截图的区域...');
 
       // 提示用户
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('请选择要长截图的区域 (在需要滚动截图的内容上拖动选择)'),
-          duration: Duration(seconds: 3),
-        ),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('请选择要长截图的区域 (在需要滚动截图的内容上拖动选择)'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
 
       await Future.delayed(const Duration(seconds: 2));
 
@@ -240,6 +240,8 @@ class LongScreenshotService {
 
   /// 显示开始确认对话框
   Future<bool?> _showStartConfirmation(BuildContext context) async {
+    if (!context.mounted) return null;
+
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -264,6 +266,8 @@ class LongScreenshotService {
 
   /// 显示继续提示对话框
   Future<bool?> _showContinuePrompt(BuildContext context) async {
+    if (!context.mounted) return null;
+
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(

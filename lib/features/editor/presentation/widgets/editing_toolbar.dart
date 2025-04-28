@@ -35,7 +35,7 @@ class EditingToolbar extends StatelessWidget {
           ),
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.start,
         children: [
