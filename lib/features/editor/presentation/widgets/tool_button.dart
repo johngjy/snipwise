@@ -20,13 +20,13 @@ class ToolButton extends StatelessWidget {
   final Key? buttonKey;
 
   const ToolButton({
-    Key? key,
+    super.key,
     required this.icon,
     required this.isSelected,
     required this.onTap,
     this.color,
     this.buttonKey,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -1,76 +1,67 @@
-import 'dart:ui' as ui;
 import 'dart:async';
-import 'dart:math';
 import 'dart:io';
+import 'dart:ui' as ui;
+
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/gestures.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:screen_retriever/screen_retriever.dart';
 import 'package:vector_math/vector_math_64.dart' show Matrix4, Vector4;
+import 'package:window_manager/window_manager.dart';
+
 import '../../../../core/services/clipboard_service.dart';
 import '../../../../core/services/window_service.dart';
-import '../widgets/hover_menu.dart';
-import '../widgets/zoom_menu.dart';
-import 'package:screen_retriever/screen_retriever.dart';
-import 'package:window_manager/window_manager.dart';
-import 'dart:math' as math;
-import '../../../capture/services/capture_service.dart';
 import '../../../capture/data/models/capture_mode.dart';
+import '../../../capture/services/capture_service.dart';
+import '../../application/providers/editor_providers.dart';
+import '../../application/states/tool_state.dart';
+import '../../application/states/canvas_transform_state.dart';
+import '../widgets/hover_menu.dart';
 import '../widgets/image_viewer.dart';
+import '../widgets/zoom_menu.dart';
 import '../widgets/editor_status_bar.dart';
 import '../widgets/editor_toolbar.dart';
 
 /// 图片编辑页面 - 截图完成后的编辑界面
-class EditorPage extends StatefulWidget {
-  /// 图片数据
+class EditorPage extends ConsumerStatefulWidget {
+  /// 图片Rect(用于显示)
+  final ui.Rect? logicalRect;
+
+  /// 屏幕截图数据
   final Uint8List? imageData;
 
-  /// 截图时的屏幕缩放比例
+  /// 截图比例
   final double? scale;
 
-  /// 逻辑矩形
-  final Rect? logicalRect;
-
-  const EditorPage({super.key, this.imageData, this.scale, this.logicalRect});
+  const EditorPage({
+    super.key,
+    this.logicalRect,
+    this.imageData,
+    this.scale,
+  });
 
   @override
-  State<EditorPage> createState() => _EditorPageState();
+  ConsumerState<EditorPage> createState() => _EditorPageState();
 }
 
-/// 截图编辑工具类型
-enum SnipToolType {
-  none,
-  pen,
-  text,
-  arrow,
-  rectangle,
-  highlight,
-  circle,
-  eraser,
-  measure,
-  magnifier,
-  ocr,
-}
-
-class _EditorPageState extends State<EditorPage> with WindowListener {
+class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
   final Logger _logger = Logger();
   Uint8List? _imageData;
   ui.Image? _imageAsUiImage;
   Size? _imageSize;
-  bool _isLoading = true;
-  double _zoomLevel = 1.0;
   double _capturedScale = 1.0;
   static const double _minZoom = 0.1;
   static const double _maxZoom = 5.0;
-  bool _isShiftPressed = false;
   OverlayEntry? _tooltip;
   bool _isZoomMenuVisible = false;
   OverlayEntry? _zoomOverlayEntry;
 
-  String _selectedToolString = '';
-  final GlobalKey _zoomButtonKey = GlobalKey();
+  final GlobalKey _statusBarZoomButtonKey = GlobalKey();
+  final GlobalKey _toolbarZoomButtonKey = GlobalKey();
   final TransformationController _transformController =
       TransformationController();
   final LayerLink _newButtonLayerLink = LayerLink();
@@ -80,9 +71,6 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
   OverlayEntry? _zoomMenuOverlay;
   final LayerLink _zoomLayerLink = LayerLink();
   Size? _availableEditorSize;
-  static const double _toolbarHeight = 38.0;
-  static const double _statusBarHeight = 38.0;
-  static const double _totalUIHeight = _toolbarHeight + _statusBarHeight;
 
   @override
   void initState() {
@@ -114,11 +102,6 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
 
   /// Load image data and then adjust window size
   Future<void> _loadImageData() async {
-    if (mounted) {
-      setState(() {
-        _isLoading = true;
-      });
-    }
     try {
       _imageData = widget.imageData;
       if (_imageData == null) {
@@ -133,22 +116,15 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
         _imageAsUiImage!.width.toDouble(),
         _imageAsUiImage!.height.toDouble(),
       );
-
-      // Use provided scale or default to 1.0
       _capturedScale = widget.scale ?? 1.0;
-
       _logger.d(
         'Image loaded: Physical Size=${_imageSize?.width}x${_imageSize?.height}, Scale=$_capturedScale, Logical Size=${widget.logicalRect?.width}x${widget.logicalRect?.height}',
       );
-
-      // Set initial zoom level based on window adjustment
       await _adjustWindowSize();
     } catch (e, stackTrace) {
       _logger.e('Error loading image data', error: e, stackTrace: stackTrace);
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        ref.read(editorStateProvider.notifier).setLoading(false);
       }
     }
   }
@@ -161,134 +137,53 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
         'Cannot adjust window size: Image logical rect or size is missing.',
       );
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        ref.read(editorStateProvider.notifier).setLoading(false);
       }
       return;
     }
 
     try {
-      // 1. Get Screen Size
+      ref.read(editorStateProvider.notifier).setLoading(true);
+      final Size imageSize = Size(
+        widget.logicalRect!.width,
+        widget.logicalRect!.height,
+      );
       final Display primaryDisplay = await screenRetriever.getPrimaryDisplay();
       final Size screenSize = primaryDisplay.visibleSize ?? primaryDisplay.size;
-      _logger.d(
-        'Screen size (visible or total): ${screenSize.width}x${screenSize.height}',
-      );
+      _logger.d('开始使用Riverpod计算窗口尺寸，图像尺寸: $imageSize, 屏幕尺寸: $screenSize');
 
-      // 2. Define Constraints
-      const double minWidth = 900.0;
-      const double minHeight = 500.0;
-      final double maxWidth = screenSize.width * 0.9;
-      final double maxHeight = screenSize.height * 0.9;
-      _logger.d(
-        'Window constraints: Min=${minWidth}x$minHeight, Max=$maxWidth.toStringAsFixed(2)x$maxHeight.toStringAsFixed(2)',
-      );
+      ref.read(layoutProvider.notifier).initialize(screenSize);
+      final initialScale = ref
+          .read(editorStateProvider.notifier)
+          .loadScreenshotWithLayout(_imageData, imageSize);
+      _logger.d('计算得到的初始缩放比例: $initialScale');
 
-      // 3. Calculate Base Size (Image + UI)
-      final double baseWidth = widget.logicalRect!.width;
-      final double baseHeight = widget.logicalRect!.height + _totalUIHeight;
-      _logger.d(
-        'Base desired size (Image + UI): ${baseWidth.toStringAsFixed(2)}x${baseHeight.toStringAsFixed(2)}',
-      );
+      final editorWindowSize = ref.read(layoutProvider).editorWindowSize;
+      _logger.d('计算得到的窗口尺寸: $editorWindowSize');
 
-      // 4. Determine if Padding Needed (Image forces size > min)
-      final bool needsPadding = baseWidth > minWidth || baseHeight > minHeight;
-      if (needsPadding) {
-        _logger.d('Image size exceeds minimums, padding will be added.');
-      } else {
-        _logger.d('Image size fits within minimums, no extra padding added.');
-      }
-
-      // 5. Calculate Potentially Padded Size
-      final double paddedWidth = baseWidth + (needsPadding ? 40.0 : 0.0);
-      final double paddedHeight = baseHeight + (needsPadding ? 40.0 : 0.0);
-      _logger.d(
-        'Size after potential padding: ${paddedWidth.toStringAsFixed(2)}x${paddedHeight.toStringAsFixed(2)}',
-      );
-
-      // 6. Apply Minimums to Padded Size
-      double targetWidth = max(minWidth, paddedWidth);
-      double targetHeight = max(minHeight, paddedHeight);
-      _logger.d(
-        'Size after applying minimums: ${targetWidth.toStringAsFixed(2)}x${targetHeight.toStringAsFixed(2)}',
-      );
-
-      // 7. Check and Apply Maximums, Determine if Fit is Needed
-      bool needsFit = false;
-      double finalWidth = targetWidth;
-      double finalHeight = targetHeight;
-
-      if (targetWidth > maxWidth) {
-        finalWidth = maxWidth;
-        needsFit = true;
-        _logger.i(
-          'Width exceeds max limit ($maxWidth). Setting width to $finalWidth and enabling fit.',
-        );
-      }
-      if (targetHeight > maxHeight) {
-        finalHeight = maxHeight;
-        needsFit = true;
-        _logger.i(
-          'Height exceeds max limit ($maxHeight). Setting height to $finalHeight and enabling fit.',
-        );
-      }
-      _logger.d(
-        'Final target window size: ${finalWidth.toStringAsFixed(2)}x${finalHeight.toStringAsFixed(2)}',
-      );
-
-      // 8. Resize Window
-      await WindowService.instance.resizeWindow(Size(finalWidth, finalHeight));
+      await WindowService.instance.resizeWindow(editorWindowSize);
       await windowManager.center();
-      _logger.d('Window resize requested to $finalWidth x $finalHeight');
+      _logger.d('窗口大小调整完成');
 
-      // 9. Set Initial Zoom (after potential resize)
-      double initialZoom;
-      if (needsFit) {
-        _logger.d(
-          'Calculating fit zoom level because window size was constrained.',
-        );
-        // Calculate available editor size based on the FINAL window size
-        final Size finalEditorSize = Size(
-          finalWidth,
-          finalHeight - _totalUIHeight,
-        );
-        initialZoom = _calculateFitZoomLevel(
-          finalEditorSize,
-          widget.logicalRect!.size,
-        );
-        _logger.i(
-          'Fit needed. Setting initial zoom to ${initialZoom.toStringAsFixed(3)}',
-        );
-      } else {
-        initialZoom = 1.0; // 100% zoom
-        _logger.d('No fit needed. Setting initial zoom to 100%.');
-      }
-
-      // Set loading to false *before* setting zoom state
       if (mounted) {
         setState(() {
-          _isLoading = false;
+          _transformController.value = Matrix4.identity();
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _setZoomLevel(initialScale, fromInit: true);
+            _logger.d('通过post frame callback设置初始缩放级别: $initialScale');
+          }
         });
       }
-
-      // Use addPostFrameCallback to set zoom after layout is updated
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _setZoomLevel(initialZoom, fromInit: true);
-          _logger.d('Initial zoom level set via post frame callback.');
-        }
-      });
     } catch (e, stackTrace) {
       _logger.e(
-        'Error adjusting window size',
+        'Error adjusting window size using Riverpod',
         error: e,
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        ref.read(editorStateProvider.notifier).setLoading(false);
       }
     }
   }
@@ -306,30 +201,40 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       return 1.0; // Avoid division by zero or invalid calculation
     }
 
-    final double availableWidth = availableSize.width;
-    final double availableHeight = availableSize.height;
+    // 记录原始尺寸信息
+    _logger
+        .d('计算Fit zoom - 原始尺寸: 可用区域=$availableSize, 图片逻辑尺寸=$imageLogicalSize');
+
+    // 直接使用传入的图片原始尺寸，不再从当前缩放比例计算
     final double imageWidth = imageLogicalSize.width;
     final double imageHeight = imageLogicalSize.height;
 
-    // Calculate aspect ratios
+    // 获取可用白色背景区域的尺寸
+    // 考虑到顶部工具栏和底部状态栏的高度
+    final double availableWidth = availableSize.width * 0.94; // 减去6%的水平边距
+    final double availableHeight = availableSize.height * 0.94; // 减去6%的垂直边距
+
+    // 计算宽高比
     final double viewAspectRatio = availableWidth / availableHeight;
     final double imageAspectRatio = imageWidth / imageHeight;
 
     double scale;
-    // Compare aspect ratios to determine whether to fit width or height
+    // 根据宽高比决定是以宽度为基准还是以高度为基准进行缩放
     if (viewAspectRatio > imageAspectRatio) {
-      // View is wider than image, fit height
+      // 视图比图片更宽，以高度为基准进行缩放
       scale = availableHeight / imageHeight;
+      _logger.d('Fit zoom: 以高度为基准缩放 (视图更宽), scale = $scale');
     } else {
-      // View is taller than image (or aspect ratios are equal), fit width
+      // 视图比图片更高或宽高比接近，以宽度为基准进行缩放
       scale = availableWidth / imageWidth;
+      _logger.d('Fit zoom: 以宽度为基准缩放 (视图更高), scale = $scale');
     }
 
     _logger.d(
-      'Calculated Fit Zoom: available=$availableWidth x $availableHeight, image=$imageWidth x $imageHeight, scale=$scale',
+      'Fit zoom计算结果: 有效区域=${availableWidth.toStringAsFixed(1)} x ${availableHeight.toStringAsFixed(1)}, 图片=$imageWidth x $imageHeight, 缩放比例=${scale.toStringAsFixed(3)}',
     );
-    // 添加一个小边距，避免完全贴边
-    return scale * 0.98;
+
+    return scale;
   }
 
   /// Set zoom level and update transformation controller
@@ -340,74 +245,10 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     bool fromInit = false,
     Offset? focalPointOverride,
   }) {
-    if (!mounted) return;
-
-    final clampedZoom = newZoom.clamp(_minZoom, _maxZoom);
-    final double currentZoom = _zoomLevel;
-
-    if (clampedZoom == currentZoom || clampedZoom <= 0) {
-      return;
-    }
-
-    final Matrix4 currentMatrix = _transformController.value.clone();
-    final double scaleDelta = clampedZoom / currentZoom;
-
-    Matrix4 targetMatrix;
-
-    if (focalPointOverride != null) {
-      // --- Method 1: Scale around the provided focal point (cursor) ---
-      final Offset P = focalPointOverride;
-      final Matrix4 translationToFocal = Matrix4.identity()
-        ..translate(P.dx, P.dy);
-      final Matrix4 scale = Matrix4.identity()..scale(scaleDelta, scaleDelta);
-      final Matrix4 translationBackFromFocal = Matrix4.identity()
-        ..translate(-P.dx, -P.dy);
-      targetMatrix =
-          translationToFocal * scale * translationBackFromFocal * currentMatrix;
-      _logger.d('Zooming around viewport point: $P with delta $scaleDelta');
-    } else {
-      // --- Method 2: 修复 - 使用视口中心作为缩放点而不是图片中心 ---
-      final Size currentEditorSize =
-          _availableEditorSize ?? MediaQuery.of(context).size;
-
-      if (currentEditorSize.width <= 0 || currentEditorSize.height <= 0) {
-        _logger.w(
-          "Cannot set zoom level: Invalid editor size $currentEditorSize",
+    ref.read(canvasTransformProvider.notifier).setZoomLevel(
+          newZoom,
+          focalPoint: focalPointOverride,
         );
-        return;
-      }
-
-      // 直接使用视口中心作为缩放点
-      final Offset viewportCenter = Offset(
-        currentEditorSize.width / 2,
-        currentEditorSize.height / 2,
-      );
-
-      _logger.d(
-        'Zooming around viewport center: $viewportCenter with delta $scaleDelta',
-      );
-
-      final Matrix4 translationToCenter = Matrix4.identity()
-        ..translate(viewportCenter.dx, viewportCenter.dy);
-      final Matrix4 scaleMatrix = Matrix4.identity()
-        ..scale(scaleDelta, scaleDelta);
-      final Matrix4 translationBackFromCenter = Matrix4.identity()
-        ..translate(-viewportCenter.dx, -viewportCenter.dy);
-
-      targetMatrix = translationToCenter *
-          scaleMatrix *
-          translationBackFromCenter *
-          currentMatrix;
-    }
-
-    _transformController.value = targetMatrix;
-
-    setState(() {
-      _zoomLevel = clampedZoom;
-      _logger.d('Zoom level set to: ${_zoomLevel.toStringAsFixed(3)}');
-    });
-
-    _keepContentInView();
   }
 
   /// 保存编辑后的图片
@@ -473,78 +314,95 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
 
   /// 处理键盘事件
   bool _handleKeyEvent(KeyEvent event) {
-    if (event is KeyDownEvent || event is KeyRepeatEvent) {
-      // Check for Shift key state using HardwareKeyboard
-      final bool currentShiftState =
-          HardwareKeyboard.instance.logicalKeysPressed.contains(
-                LogicalKeyboardKey.shiftLeft,
-              ) ||
-              HardwareKeyboard.instance.logicalKeysPressed.contains(
-                LogicalKeyboardKey.shiftRight,
-              );
+    // 对于 KeyDown 和 KeyUp 事件，都更新 Modifier Keys
+    final bool isShiftPressed =
+        HardwareKeyboard.instance.logicalKeysPressed.contains(
+              LogicalKeyboardKey.shiftLeft,
+            ) ||
+            HardwareKeyboard.instance.logicalKeysPressed.contains(
+              LogicalKeyboardKey.shiftRight,
+            );
 
-      if (currentShiftState != _isShiftPressed) {
-        setState(() {
-          _isShiftPressed = currentShiftState;
-        });
-      }
-    } else if (event is KeyUpEvent) {
-      // Check for Shift key state on KeyUp as well
-      final bool currentShiftState =
-          HardwareKeyboard.instance.logicalKeysPressed.contains(
-                LogicalKeyboardKey.shiftLeft,
-              ) ||
-              HardwareKeyboard.instance.logicalKeysPressed.contains(
-                LogicalKeyboardKey.shiftRight,
-              );
+    final bool isCtrlPressed = HardwareKeyboard.instance.isControlPressed;
 
-      if (currentShiftState != _isShiftPressed) {
-        setState(() {
-          _isShiftPressed = currentShiftState;
-        });
-      }
-    }
+    final bool isAltPressed =
+        HardwareKeyboard.instance.logicalKeysPressed.contains(
+              LogicalKeyboardKey.alt,
+            ) ||
+            HardwareKeyboard.instance.logicalKeysPressed.contains(
+              LogicalKeyboardKey.altLeft,
+            ) ||
+            HardwareKeyboard.instance.logicalKeysPressed.contains(
+              LogicalKeyboardKey.altRight,
+            );
+
+    // 无论是 KeyDown 还是 KeyUp 事件，都更新工具状态中的修饰键
+    ref.read(toolProvider.notifier).updateModifierKeys(
+          isShiftPressed: isShiftPressed,
+          isCtrlPressed: isCtrlPressed,
+          isAltPressed: isAltPressed,
+        );
+
     return false; // Indicate the event was not handled here (allow further processing)
   }
 
   /// 显示缩放菜单 - 使用ZoomMenu组件
-  void _showZoomMenu(BuildContext context) {
-    // 如果菜单已显示，则隐藏
+  void _showZoomMenu(BuildContext context, {bool isFromToolbar = false}) {
     if (_isZoomMenuVisible) {
       _hideZoomMenu();
       return;
     }
 
-    // 处理菜单项选择
+    final List<String> zoomOptions = [
+      'Fit window',
+      '50%',
+      '100%',
+      '150%',
+      '200%',
+      '300%',
+    ];
+
+    // 根据调用来源使用不同的按钮上下文
+    BuildContext? buttonContext;
+    if (isFromToolbar) {
+      buttonContext = _toolbarZoomButtonKey.currentContext;
+    } else {
+      buttonContext = _statusBarZoomButtonKey.currentContext;
+    }
+
+    if (buttonContext == null) {
+      _logger.e('Zoom button context is null');
+      return;
+    }
+
+    // 处理菜单项点击
     void handleMenuItemTap(String option) {
-      if (option == 'Fit window') {
-        // Ensure _availableEditorSize is available before calculating
-        if (_availableEditorSize != null && widget.logicalRect != null) {
-          _setZoomLevel(
-            _calculateFitZoomLevel(
-              _availableEditorSize!,
-              widget.logicalRect!.size,
-            ),
-          );
-        } else {
-          _logger.w(
-            'Cannot calculate fit zoom level from menu: Missing available editor size or logical rect.',
-          );
-          // Optionally provide feedback or default behavior
-        }
-      } else {
-        final percentage = double.parse(option.replaceAll('%', '')) / 100;
-        _setZoomLevel(percentage);
+      switch (option) {
+        case 'Fit window':
+          if (_availableEditorSize != null && widget.logicalRect != null) {
+            // 使用canvasTransformProvider的fitToWindow方法
+            ref.read(canvasTransformProvider.notifier).fitToWindow(
+                  widget.logicalRect!.size,
+                  _availableEditorSize!,
+                );
+          } else {
+            _logger.e('Cannot fit to window: Missing size information');
+          }
+          break;
+        default:
+          // 处理百分比选项
+          if (option.endsWith('%')) {
+            try {
+              final double percentage =
+                  double.parse(option.substring(0, option.length - 1)) / 100;
+              _setZoomLevel(percentage);
+            } catch (e) {
+              _logger.e('Error parsing zoom percentage: $e');
+            }
+          }
       }
       _hideZoomMenu();
     }
-
-    // 创建缩放选项列表
-    final List<String> zoomOptions = [
-      'Fit window',
-      '100%',
-      '200%',
-    ]; // Updated list
 
     // 创建覆盖条目 - 定位在屏幕左下角
     _zoomOverlayEntry = OverlayEntry(
@@ -563,7 +421,7 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
             },
             child: ZoomMenu(
               zoomOptions: zoomOptions,
-              currentZoom: _zoomLevel,
+              currentZoom: _transformController.value.getTranslation().z,
               // Pass the actual calculated fit level for comparison
               fitZoomLevel:
                   (_availableEditorSize != null && widget.logicalRect != null)
@@ -579,7 +437,7 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       ),
     );
 
-    Overlay.of(context).insert(_zoomOverlayEntry!);
+    Overlay.of(buttonContext).insert(_zoomOverlayEntry!);
     setState(() {
       _isZoomMenuVisible = true;
     });
@@ -615,7 +473,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       // Calculate new zoom level
       final double scrollDelta = event.scrollDelta.dy;
       final double zoomFactor = scrollDelta < 0 ? 1.1 : (1 / 1.1);
-      final double newZoom = (_zoomLevel * zoomFactor).clamp(
+      final double newZoom =
+          (_transformController.value.getTranslation().z * zoomFactor).clamp(
         _minZoom,
         _maxZoom,
       );
@@ -662,50 +521,83 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     }
   }
 
-  /// 设置当前工具
-  void _selectTool(String tool) {
-    setState(() {
-      _selectedToolString = tool;
-    });
-    _logger.i('Selected tool: $tool');
-  }
-
-  // Action methods
-  void _handleUndo() => _logger.i('Undo action triggered');
-  void _handleRedo() => _logger.i('Redo action triggered');
-  void _handleZoom() {
-    // 通过按钮触发缩放菜单
-    final BuildContext? context = _zoomButtonKey.currentContext;
-    if (context != null) {
-      _showZoomMenu(context);
-    } else {
-      _logger.w('缩放按钮上下文不可用');
+  /// 处理工具选择
+  void _handleToolSelect(String tool) {
+    // 将字符串工具名称转换为枚举值
+    EditorTool? selectedTool;
+    switch (tool) {
+      case 'select':
+        selectedTool = EditorTool.select;
+        break;
+      case 'rectangle':
+        selectedTool = EditorTool.rectangle;
+        break;
+      case 'ellipse':
+        selectedTool = EditorTool.ellipse;
+        break;
+      case 'arrow':
+        selectedTool = EditorTool.arrow;
+        break;
+      case 'line':
+        selectedTool = EditorTool.line;
+        break;
+      case 'text':
+        selectedTool = EditorTool.text;
+        break;
+      case 'blur':
+        selectedTool = EditorTool.blur;
+        break;
+      case 'highlight':
+        selectedTool = EditorTool.highlight;
+        break;
+      default:
+        selectedTool = EditorTool.select;
     }
+
+    // 更新工具状态
+    ref.read(toolProvider.notifier).setCurrentTool(selectedTool);
   }
 
   @override
   Widget build(BuildContext context) {
+    // 获取编辑器状态（不变的部分）
+    final imageData = _imageData;
+
     return Scaffold(
       backgroundColor: const Color(0xFFEEEEEE), // 浅灰背景
       body: Column(
         children: [
-          // 工具栏 - 新设计 (图2样式)
-          EditorToolbar(
-            newButtonLayerLink: _newButtonLayerLink,
-            zoomButtonKey: _zoomButtonKey,
-            onShowNewButtonMenu: _showNewButtonMenu,
-            onHideNewButtonMenu: _startNewButtonHideTimer,
-            onShowSaveConfirmation: _showSaveConfirmationDialog,
-            onSelectTool: _selectTool,
-            selectedTool: _selectedToolString,
-            onUndo: _handleUndo,
-            onRedo: _handleRedo,
-            onZoom: _handleZoom,
-            onSaveImage: _saveImage,
-            onCopyToClipboard: _copyToClipboard,
+          // 使用 Consumer 包裹工具栏，只在工具状态变化时重建
+          Consumer(
+            builder: (context, ref, child) {
+              final toolState = ref.watch(toolProvider);
+              final selectedToolString =
+                  toolState.currentTool.toString().split('.').last;
+
+              return EditorToolbar(
+                newButtonLayerLink: _newButtonLayerLink,
+                zoomButtonKey: _toolbarZoomButtonKey,
+                onShowNewButtonMenu: _showNewButtonMenu,
+                onHideNewButtonMenu: () {
+                  // 使用延迟隐藏菜单，防止菜单立即消失
+                  _newButtonHideTimer =
+                      Timer(const Duration(milliseconds: 200), () {
+                    _hideNewButtonMenu();
+                  });
+                },
+                onShowSaveConfirmation: () =>
+                    _captureWithMode(CaptureMode.region), // 直接调用区域截图
+                onSelectTool: _handleToolSelect,
+                selectedTool: selectedToolString,
+                onUndo: () => _logger.i('Undo pressed'),
+                onRedo: () => _logger.i('Redo pressed'),
+                onZoom: () => _showZoomMenu(context, isFromToolbar: true),
+                onSaveImage: _saveImage,
+                onCopyToClipboard: _copyToClipboard,
+              );
+            },
           ),
 
-          // 主要内容区域 - 使用ImageViewer组件
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -715,63 +607,79 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
                   constraints.maxHeight,
                 );
 
-                return Center(
-                  child: ImageViewer(
-                    imageData: _imageData,
-                    capturedScale: _capturedScale,
-                    transformController: _transformController,
-                    minZoom: _minZoom,
-                    maxZoom: _maxZoom,
-                    zoomLevel: _zoomLevel,
-                    onMouseScroll: _handleMouseScroll,
-                    onZoomChanged: (scale) {
-                      if (mounted && (_zoomLevel - scale).abs() > 0.01) {
-                        setState(() {
-                          _zoomLevel = scale;
-                        });
-                      }
-                    },
-                  ),
+                // 使用 Consumer 包裹主内容区域，只在相关状态变化时重建
+                return Consumer(
+                  builder: (context, ref, child) {
+                    // 监听画布变换状态
+                    final canvasTransform = ref.watch(canvasTransformProvider);
+                    final zoomLevel = canvasTransform.zoomLevel;
+
+                    return Center(
+                      child: ImageViewer(
+                        imageData: imageData,
+                        capturedScale: _capturedScale,
+                        transformController: _transformController,
+                        minZoom: CanvasTransformState.minZoom,
+                        maxZoom: CanvasTransformState.maxZoom,
+                        zoomLevel: zoomLevel,
+                        onMouseScroll: _handleMouseScroll,
+                        onZoomChanged: (scale) {
+                          if (mounted && (zoomLevel - scale).abs() > 0.01) {
+                            ref
+                                .read(canvasTransformProvider.notifier)
+                                .setZoomLevel(scale);
+                          }
+                        },
+                      ),
+                    );
+                  },
                 );
               },
             ),
           ),
 
-          // 底部状态栏 - macOS风格设计
-          EditorStatusBar(
-            imageData: _imageData,
-            zoomLevel: _zoomLevel,
-            minZoom: _minZoom,
-            maxZoom: _maxZoom,
-            onZoomChanged: _setZoomLevel,
-            onZoomMenuTap: () => _showZoomMenu(context),
-            zoomLayerLink: _zoomLayerLink,
-            zoomButtonKey: _zoomButtonKey,
-            onExportImage: _saveImage,
-            onCopyToClipboard: _copyToClipboard,
-            onCrop: () => _logger.i('Crop button pressed'),
-            onOpenFileLocation: () => _logger.i('Files button pressed'),
-            onDragSuccess: () {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('图像拖拽已启动，可拖放到目标应用程序'),
-                    duration: Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              }
-            },
-            onDragError: (message) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('拖拽失败: $message'),
-                    duration: const Duration(seconds: 3),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              }
+          // 使用 Consumer 包裹状态栏，只在相关状态变化时重建
+          Consumer(
+            builder: (context, ref, child) {
+              final canvasTransform = ref.watch(canvasTransformProvider);
+              return EditorStatusBar(
+                imageData: imageData,
+                zoomLevel: canvasTransform.zoomLevel,
+                minZoom: CanvasTransformState.minZoom,
+                maxZoom: CanvasTransformState.maxZoom,
+                onZoomChanged: (newZoom) => ref
+                    .read(canvasTransformProvider.notifier)
+                    .setZoomLevel(newZoom),
+                onZoomMenuTap: () => _showZoomMenu(context),
+                zoomLayerLink: _zoomLayerLink,
+                zoomButtonKey: _statusBarZoomButtonKey,
+                onExportImage: _saveImage,
+                onCopyToClipboard: _copyToClipboard,
+                onCrop: () => _logger.i('Crop button pressed'),
+                onOpenFileLocation: () => _logger.i('Files button pressed'),
+                onDragSuccess: () {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('图像拖拽已启动，可拖放到目标应用程序'),
+                        duration: Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                },
+                onDragError: (message) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('拖拽失败: $message'),
+                        duration: const Duration(seconds: 3),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                },
+              );
             },
           ),
         ],
@@ -816,8 +724,18 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
             onEnter: (_) {
               _newButtonHideTimer?.cancel();
             },
-            onExit: (_) => _startNewButtonHideTimer(),
-            child: HoverMenu(items: menuItems),
+            onExit: (_) {
+              // 使用延迟隐藏菜单，给用户更多时间操作
+              _newButtonHideTimer =
+                  Timer(const Duration(milliseconds: 200), () {
+                _hideNewButtonMenu();
+              });
+            },
+            child: Material(
+              elevation: 8,
+              borderRadius: BorderRadius.circular(8),
+              child: HoverMenu(items: menuItems),
+            ),
           ),
         ),
       ),
@@ -826,32 +744,31 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     Overlay.of(context).insert(_newButtonOverlay!);
   }
 
-  /// 开始定时器以隐藏New按钮菜单
-  void _startNewButtonHideTimer() {
-    _newButtonHideTimer?.cancel();
-    _newButtonHideTimer = Timer(const Duration(milliseconds: 300), () {
-      _hideNewButtonMenu();
-    });
-  }
-
   /// 隐藏New按钮菜单
   void _hideNewButtonMenu() {
+    _newButtonHideTimer?.cancel();
     _newButtonOverlay?.remove();
     _newButtonOverlay = null;
-    if (mounted) {
-      // setState 内部为空，直接删除
-    }
   }
 
   /// 使用指定的捕获模式进行截图
   void _captureWithMode(CaptureMode mode) {
     _hideNewButtonMenu();
 
-    // 如果当前有未保存更改，先询问用户是否保存
+    // 如果当前有未保存的截图，先保存然后执行新截图
     if (_imageData != null) {
-      _showSaveConfirmationDialog(mode);
+      // 自动保存当前截图，然后执行新截图
+      _saveImage().then((_) {
+        _logger.d('已自动保存当前截图，准备执行新的截图');
+        // 执行截图 - 注意：这里不需要特殊处理，_performCapture中已经包含了完整的状态重置流程
+        _performCapture(mode);
+      }).catchError((e) {
+        _logger.e('自动保存截图失败，但仍继续执行新的截图', error: e);
+        // 即使保存失败，也尝试执行截图
+        _performCapture(mode);
+      });
     } else {
-      // 直接执行截图，不需要保存确认
+      // 直接执行截图，不需要保存
       _performCapture(mode);
     }
   }
@@ -868,10 +785,8 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
 
       if (result != null && result.hasData) {
         captureSuccess = true; // Mark success
-        setState(() {
-          _isLoading = true;
-        });
 
+        // 获取新截图数据
         _imageData = result.imageBytes;
         _capturedScale = result.scale;
 
@@ -884,7 +799,12 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
         );
 
         if (!mounted) return;
-        await _adjustWindowSize();
+
+        // 新增：使用更强大的状态重置方法
+        await _resetStatesForNewScreenshot(
+          result.imageBytes!,
+          result.logicalRect?.size ?? _imageSize!,
+        );
       } else {
         _logger.w('截图未返回结果或已取消');
         if (!mounted) return;
@@ -898,160 +818,73 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('截图失败: $e')));
-    } finally {
-      if (!captureSuccess && mounted) {
+    }
+  }
+
+  /// 为新截图重置所有相关状态并调整窗口尺寸
+  /// 这是一个完整的状态重置流程，确保二次截图时UI正确更新
+  Future<void> _resetStatesForNewScreenshot(
+      Uint8List imageData, Size imageSize) async {
+    _logger.d('开始为新截图重置状态: 图像尺寸=$imageSize');
+
+    try {
+      // 1. 首先重置所有状态（包括画布变换、标注等）
+      ref.read(editorStateProvider.notifier).resetAllState();
+
+      // 2. 获取屏幕尺寸信息
+      final Display primaryDisplay = await screenRetriever.getPrimaryDisplay();
+      final Size screenSize = primaryDisplay.visibleSize ?? primaryDisplay.size;
+      _logger.d('重置状态 - 获取屏幕尺寸: $screenSize');
+
+      // 3. 初始化布局计算器
+      ref.read(layoutProvider.notifier).initialize(screenSize);
+
+      // 4. 加载新截图数据到编辑器状态（这会触发布局重新计算）
+      final initialScale = ref
+          .read(editorStateProvider.notifier)
+          .loadScreenshotWithLayout(imageData, imageSize);
+      _logger.d('初始缩放比例: $initialScale');
+
+      // 5. 获取计算出的新窗口尺寸
+      final editorWindowSize = ref.read(layoutProvider).editorWindowSize;
+      _logger.d('新窗口尺寸: $editorWindowSize');
+
+      // 6. 调整窗口尺寸
+      await WindowService.instance.resizeWindow(editorWindowSize);
+      await windowManager.center();
+      _logger.d('窗口大小调整完成');
+
+      // 7. 在下一帧中设置变换和缩放
+      if (mounted) {
         setState(() {
-          _isLoading = false;
+          _transformController.value = Matrix4.identity();
+        });
+
+        // 使用 PostFrameCallback 确保UI更新后再设置缩放
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _setZoomLevel(initialScale, fromInit: true);
+            _logger.d('状态重置完成，已设置初始缩放: $initialScale');
+
+            // 打印关键状态值，用于验证
+            final editorState = ref.read(editorStateProvider);
+            final layoutState = ref.read(layoutProvider);
+            final transformState = ref.read(canvasTransformProvider);
+
+            _logger.d(
+                '状态验证 - EditorState.imageSize: ${editorState.originalImageSize}');
+            _logger.d(
+                '状态验证 - LayoutState.windowSize: ${layoutState.editorWindowSize}');
+            _logger.d(
+                '状态验证 - CanvasTransform.scale: ${transformState.scaleFactor}');
+          }
         });
       }
+    } catch (e, stackTrace) {
+      _logger.e('重置状态过程中发生错误', error: e, stackTrace: stackTrace);
+      if (mounted) {
+        ref.read(editorStateProvider.notifier).setLoading(false);
+      }
     }
-  }
-
-  /// 显示保存确认对话框
-  void _showSaveConfirmationDialog([CaptureMode? captureMode]) {
-    showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Save Current Screenshot'),
-          content: const Text(
-            'Would you like to save your current screenshot before taking a new one?',
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Discard'),
-              onPressed: () {
-                Navigator.of(context).pop(false);
-              },
-            ),
-            TextButton(
-              child: const Text('Save'),
-              onPressed: () {
-                Navigator.of(context).pop(true);
-              },
-            ),
-          ],
-        );
-      },
-    ).then((saveFirst) async {
-      if (!mounted) return;
-
-      if (saveFirst ?? false) {
-        await _saveImage();
-      }
-
-      if (!mounted) return;
-      if (captureMode != null) {
-        await _performCapture(captureMode);
-      } else {
-        await _performCapture(CaptureMode.region); // 默认使用区域截图
-      }
-    });
-  }
-
-  void _keepContentInView() {
-    if (!mounted || _imageSize == null || _availableEditorSize == null) return;
-
-    final Matrix4 currentMatrix = _transformController.value;
-    final Rect imageBoundsLocal = Rect.fromLTWH(
-      0,
-      0,
-      _imageSize!.width,
-      _imageSize!.height,
-    );
-    final Rect transformedBounds = transformRect(
-      currentMatrix,
-      imageBoundsLocal,
-    );
-
-    final Size viewportSize = _availableEditorSize!;
-    double dx = 0;
-    double dy = 0;
-
-    // Correct position if image bounds exceed viewport
-    if (transformedBounds.width > viewportSize.width) {
-      if (transformedBounds.left > 0) {
-        dx = -transformedBounds.left;
-      }
-      if (transformedBounds.right < viewportSize.width) {
-        dx = viewportSize.width - transformedBounds.right;
-      }
-    } else {
-      // Center horizontally if smaller than viewport
-      dx = (viewportSize.width - transformedBounds.width) / 2 -
-          transformedBounds.left;
-    }
-
-    if (transformedBounds.height > viewportSize.height) {
-      if (transformedBounds.top > 0) {
-        dy = -transformedBounds.top;
-      }
-      if (transformedBounds.bottom < viewportSize.height) {
-        dy = viewportSize.height - transformedBounds.bottom;
-      }
-    } else {
-      // Center vertically if smaller than viewport
-      dy = (viewportSize.height - transformedBounds.height) / 2 -
-          transformedBounds.top;
-    }
-
-    if (dx.abs() > 1e-3 || dy.abs() > 1e-3) {
-      // Add tolerance
-      _logger.d(
-        'Applying boundary correction: dx=${dx.toStringAsFixed(2)}, dy=${dy.toStringAsFixed(2)}',
-      );
-      // Use post-frame callback to avoid setState during build/layout
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _transformController.value = currentMatrix.clone()..translate(dx, dy);
-        }
-      });
-    }
-  }
-
-  // Helper function to transform a Rect using a Matrix4
-  Rect transformRect(Matrix4 matrix, Rect rect) {
-    // Transform corner points using Vector4
-    final Vector4 topLeft = matrix.transformed(
-      Vector4(rect.left, rect.top, 0, 1),
-    );
-    final Vector4 topRight = matrix.transformed(
-      Vector4(rect.right, rect.top, 0, 1),
-    );
-    final Vector4 bottomLeft = matrix.transformed(
-      Vector4(rect.left, rect.bottom, 0, 1),
-    );
-    final Vector4 bottomRight = matrix.transformed(
-      Vector4(rect.right, rect.bottom, 0, 1),
-    );
-
-    // Normalize W component
-    final double topLeftX = topLeft.x / topLeft.w;
-    final double topLeftY = topLeft.y / topLeft.w;
-    final double topRightX = topRight.x / topRight.w;
-    final double topRightY = topRight.y / topRight.w;
-    final double bottomLeftX = bottomLeft.x / bottomLeft.w;
-    final double bottomLeftY = bottomLeft.y / bottomLeft.w;
-    final double bottomRightX = bottomRight.x / bottomRight.w;
-    final double bottomRightY = bottomRight.y / bottomRight.w;
-
-    final double minX = math.min(
-      math.min(topLeftX, topRightX),
-      math.min(bottomLeftX, bottomRightX),
-    );
-    final double maxX = math.max(
-      math.max(topLeftX, topRightX),
-      math.max(bottomLeftX, bottomRightX),
-    );
-    final double minY = math.min(
-      math.min(topLeftY, topRightY),
-      math.min(bottomLeftY, bottomRightY),
-    );
-    final double maxY = math.max(
-      math.max(topLeftY, topRightY),
-      math.max(bottomLeftY, bottomRightY),
-    );
-
-    return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 }

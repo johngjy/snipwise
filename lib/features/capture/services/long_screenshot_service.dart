@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:screen_capturer/screen_capturer.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image/image.dart' as img;
@@ -142,14 +142,13 @@ class LongScreenshotService {
       _logger.i('正在等待用户选择要截图的区域...');
 
       // 提示用户
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('请选择要长截图的区域 (在需要滚动截图的内容上拖动选择)'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
+      if (!context.mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('请选择要长截图的区域 (在需要滚动截图的内容上拖动选择)'),
+          duration: Duration(seconds: 3),
+        ),
+      );
 
       await Future.delayed(const Duration(seconds: 2));
 
@@ -177,7 +176,7 @@ class LongScreenshotService {
           if (!permissionGranted) {
             _logger.e('用户拒绝了截屏权限');
             // 恢复窗口显示
-            _restoreWindow(wasMinimized);
+            await _restoreWindow(wasMinimized);
             return null;
           }
         }
@@ -199,7 +198,7 @@ class LongScreenshotService {
           double height = data.imageHeight?.toDouble() ?? 600.0;
 
           _selectedRegion = Rect.fromLTWH(0, 0, width, height);
-          _logger.d('用户选择了截图区域: $_selectedRegion (图像尺寸: ${width}x${height})');
+          _logger.d('用户选择了截图区域: $_selectedRegion (图像尺寸: $width x $height)');
 
           return _selectedRegion;
         }
@@ -248,39 +247,39 @@ class LongScreenshotService {
         title: const Text('长截图准备'),
         content: const Text('1. 将在选定区域进行长截图\n'
             '2. 请准备滚动内容\n'
-            '3. 每次截图后，请滚动内容并点击"继续"\n'
-            '4. 完成后点击"结束并拼接"'),
-        actions: [
+            '3. 点击 "开始" 后，捕获第一屏，然后您需要手动滚动\n'
+            '4. 每次滚动后点击 "继续"，直到完成'),
+        actions: <Widget>[
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
             child: const Text('取消'),
+            onPressed: () => Navigator.of(context).pop(false),
           ),
           TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
             child: const Text('开始'),
+            onPressed: () => Navigator.of(context).pop(true),
           ),
         ],
       ),
     );
   }
 
-  /// 显示继续提示对话框
+  /// 显示继续/完成提示对话框
   Future<bool?> _showContinuePrompt(BuildContext context) async {
     if (!context.mounted) return null;
-
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('继续截图？'),
-        content: Text('已截取 ${_screenshots.length} 张图片'),
-        actions: [
+        title: const Text('继续截图?'),
+        content: const Text('请滚动到下一屏内容，然后点击 "继续"。\n'
+            '如果已滚动到最后，请点击 "完成"。'),
+        actions: <Widget>[
           TextButton(
+            child: const Text('完成'),
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('结束并拼接'),
           ),
           TextButton(
+            child: const Text('继续'),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('继续截取'),
           ),
         ],
       ),
@@ -380,57 +379,75 @@ class LongScreenshotService {
     if (_screenshots.isEmpty) return null;
 
     try {
-      // 1. 加载所有图片
-      List<img.Image> images = [];
-      int totalHeight = 0;
-      int width = 0;
-
-      for (var screenshot in _screenshots) {
-        if (screenshot.imagePath == null) continue;
-
-        // 读取图片文件
-        final bytes = await File(screenshot.imagePath!).readAsBytes();
-        final image = img.decodeImage(bytes);
-
-        if (image != null) {
-          images.add(image);
-          totalHeight += image.height;
-          // 使用第一张图片的宽度作为基准
-          if (width == 0) width = image.width;
+      // 读取所有截图为img.Image对象
+      final List<img.Image> images = [];
+      for (final data in _screenshots) {
+        if (data.imagePath != null) {
+          final file = File(data.imagePath!);
+          if (await file.exists()) {
+            final bytes = await file.readAsBytes();
+            final image = img.decodeImage(bytes);
+            if (image != null) {
+              images.add(image);
+            }
+          }
+        } else if (data.imageBytes != null) {
+          final image = img.decodeImage(data.imageBytes!);
+          if (image != null) {
+            images.add(image);
+          }
         }
       }
 
-      if (images.isEmpty) return null;
-
-      // 2. 创建一个新的大图片
-      _logger.d('创建合成图: $width x $totalHeight');
-      final img.Image result = img.Image(width: width, height: totalHeight);
-
-      // 3. 拼接图片
-      int yOffset = 0;
-      for (var image in images) {
-        // 将图片复制到结果图片中 - 使用blit方法代替copyInto
-        img.compositeImage(
-          result,
-          image,
-          dstY: yOffset,
-        );
-
-        yOffset += image.height;
+      if (images.isEmpty) {
+        _logger.e('无法解码任何截图文件');
+        return null;
       }
 
-      // 4. 编码并保存结果
-      final outputBytes = img.encodePng(result);
+      _logger.d('成功解码 ${images.length} 张图片');
 
-      // 创建输出文件
+      // 获取目标裁剪宽度（基于选择的区域或第一张图）
+      final int targetWidth =
+          (_selectedRegion?.width ?? images.first.width).toInt();
+
+      // 裁剪所有图片到目标宽度（假设区域选择正确）
+      final List<img.Image> croppedImages = images.map((image) {
+        int cropWidth = math.min(image.width, targetWidth);
+        // 尝试居中裁剪
+        int offsetX = (image.width - cropWidth) ~/ 2;
+        return img.copyCrop(image,
+            x: offsetX, y: 0, width: cropWidth, height: image.height);
+      }).toList();
+
+      // 计算总高度
+      int totalHeight = croppedImages.fold(0, (sum, item) => sum + item.height);
+
+      // 创建最终画布
+      final img.Image resultImage = img.Image(
+        width: targetWidth,
+        height: totalHeight,
+      );
+
+      // 将裁剪后的图片绘制到画布上
+      int currentY = 0;
+      for (final croppedImage in croppedImages) {
+        img.compositeImage(
+          resultImage,
+          croppedImage,
+          dstY: currentY,
+        );
+        currentY += croppedImage.height;
+      }
+
+      // 获取临时目录并保存文件
       final directory = await getTemporaryDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final outputPath =
-          path.join(directory.path, 'long_screenshot_result_$timestamp.png');
-      final outputFile = File(outputPath);
+      final filePath =
+          path.join(directory.path, 'long_screenshot_$timestamp.png');
+      final outputFile = File(filePath);
+      await outputFile.writeAsBytes(img.encodePng(resultImage));
 
-      // 写入文件
-      await outputFile.writeAsBytes(outputBytes);
+      _logger.i('拼接后的图片已保存到临时文件: $filePath');
       return outputFile;
     } catch (e, stackTrace) {
       _logger.e('拼接图片时出错', error: e, stackTrace: stackTrace);

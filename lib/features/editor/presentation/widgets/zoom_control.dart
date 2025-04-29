@@ -33,7 +33,7 @@ class ZoomControl extends StatelessWidget {
   final bool showZoomText;
 
   const ZoomControl({
-    Key? key,
+    super.key,
     required this.zoomLevel,
     required this.minZoom,
     required this.maxZoom,
@@ -43,7 +43,7 @@ class ZoomControl extends StatelessWidget {
     this.buttonKey,
     this.buttonSize = 30.0,
     this.showZoomText = true,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -54,17 +54,6 @@ class ZoomControl extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (showZoomText)
-          Padding(
-            padding: const EdgeInsets.only(right: 8.0),
-            child: Text(
-              zoomText,
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey[700],
-              ),
-            ),
-          ),
         CompositedTransformTarget(
           link: zoomLayerLink,
           child: Container(
@@ -93,19 +82,20 @@ class ZoomControl extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      Text(
+                        zoomText,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[700],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
                       Icon(
-                        PhosphorIcons.magnifyingGlassPlus(
-                            PhosphorIconsStyle.light),
-                        size: 16,
+                        PhosphorIcons.caretDown(PhosphorIconsStyle.light),
+                        size: 12,
                         color: Colors.grey[700],
                       ),
-                      if (showZoomText) const SizedBox(width: 6),
-                      if (showZoomText)
-                        Icon(
-                          PhosphorIcons.caretDown(PhosphorIconsStyle.light),
-                          size: 12,
-                          color: Colors.grey[700],
-                        ),
                     ],
                   ),
                 ),
@@ -116,8 +106,8 @@ class ZoomControl extends StatelessWidget {
         SliderTheme(
           data: SliderThemeData(
             trackHeight: 2.0,
-            thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6.0),
-            overlayShape: RoundSliderOverlayShape(overlayRadius: 12.0),
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
             trackShape: const RoundedRectSliderTrackShape(),
           ),
           child: SizedBox(

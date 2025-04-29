@@ -43,7 +43,7 @@ class EditorToolbar extends StatelessWidget {
 
   /// 构造函数
   const EditorToolbar({
-    Key? key,
+    super.key,
     required this.newButtonLayerLink,
     required this.zoomButtonKey,
     required this.onShowNewButtonMenu,
@@ -56,7 +56,7 @@ class EditorToolbar extends StatelessWidget {
     required this.onZoom,
     required this.onSaveImage,
     required this.onCopyToClipboard,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -89,7 +89,7 @@ class EditorToolbar extends StatelessWidget {
                   vertical: 3,
                 ),
                 child: InkWell(
-                  onTap: onShowSaveConfirmation,
+                  onTap: onShowNewButtonMenu,
                   borderRadius: BorderRadius.circular(6),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,

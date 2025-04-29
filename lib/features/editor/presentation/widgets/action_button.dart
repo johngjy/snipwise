@@ -29,7 +29,7 @@ class ActionButton extends StatelessWidget {
   final String? tooltip;
 
   const ActionButton({
-    Key? key,
+    super.key,
     required this.icon,
     required this.onTap,
     this.size = 30,
@@ -38,7 +38,7 @@ class ActionButton extends StatelessWidget {
     this.borderColor,
     this.iconColor,
     this.tooltip,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -36,17 +36,15 @@ class HoverMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      elevation: 4.0,
-      borderRadius: BorderRadius.circular(8),
       color: backgroundColor,
-      shadowColor: Colors.black
-          .withAlpha((0.1 * 255).round()), // Replace deprecated withOpacity
+      borderRadius: BorderRadius.circular(8),
+      clipBehavior: Clip.antiAlias, // 防止子项溢出
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: const Color(0xFFEEEEEE)),
         ),
-        width: 150,
+        width: 180, // 增加宽度，给菜单项更多空间
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: items.map((item) => _buildMenuItem(context, item)).toList(),
@@ -56,34 +54,49 @@ class HoverMenu extends StatelessWidget {
   }
 
   Widget _buildMenuItem(BuildContext context, HoverMenuItem item) {
-    return InkWell(
-      onTap: item.onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: item.isSelected ? const Color(0xFFF5F5F5) : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          children: [
-            if (item.icon != null)
-              Icon(
-                item.icon,
-                size: iconSize,
-                color: item.isSelected ? Colors.blue : Colors.grey[600],
+    return Material(
+      color: Colors.transparent, // 使用透明背景
+      child: InkWell(
+        onTap: () {
+          // 添加短暂延迟，确保菜单项的点击事件在菜单隐藏前触发
+          Future.delayed(const Duration(milliseconds: 50), () {
+            if (item.onTap != null) {
+              item.onTap!();
+            }
+          });
+        },
+        borderRadius: BorderRadius.circular(4),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: 12, vertical: 10), // 增加垂直内边距
+          decoration: BoxDecoration(
+            color:
+                item.isSelected ? const Color(0xFFF5F5F5) : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              if (item.icon != null)
+                Icon(
+                  item.icon,
+                  size: iconSize,
+                  color: item.isSelected ? Colors.blue : Colors.grey[600],
+                ),
+              if (item.icon != null) const SizedBox(width: 8),
+              Expanded(
+                // 使用Expanded确保文本有足够空间
+                child: Text(
+                  item.label,
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    color: item.isSelected ? Colors.blue : Colors.grey[800],
+                    fontWeight:
+                        item.isSelected ? FontWeight.w500 : FontWeight.normal,
+                  ),
+                ),
               ),
-            if (item.icon != null) const SizedBox(width: 8),
-            Text(
-              item.label,
-              style: TextStyle(
-                fontSize: fontSize,
-                color: item.isSelected ? Colors.blue : Colors.grey[800],
-                fontWeight:
-                    item.isSelected ? FontWeight.w500 : FontWeight.normal,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

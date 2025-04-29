@@ -51,7 +51,7 @@ class EditorStatusBar extends StatelessWidget {
 
   /// 构造函数
   const EditorStatusBar({
-    Key? key,
+    super.key,
     required this.imageData,
     required this.zoomLevel,
     required this.minZoom,
@@ -66,7 +66,7 @@ class EditorStatusBar extends StatelessWidget {
     required this.onOpenFileLocation,
     this.onDragSuccess,
     this.onDragError,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -173,3 +173,5 @@ flutter run
 ## 许可证
 
 [待定]
+# Snipwise 状态管理文档
+- [状态管理详细文档](docs/state_management.md)

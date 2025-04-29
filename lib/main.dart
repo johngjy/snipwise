@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:provider/provider.dart' as provider;
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter/services.dart';
 import 'dart:io' show Platform;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/routes/app_routes.dart';
 import 'app/routes/app_router.dart';
 import 'core/services/clipboard_service.dart';
@@ -56,7 +57,7 @@ void main() async {
   ));
 
   // 运行App
-  runApp(const MyApp());
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 /// 初始化各种服务
@@ -78,10 +79,10 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
+    return provider.MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => CaptureModeProvider()),
-        ChangeNotifierProvider(create: (_) => HiResCapureProvider()),
+        provider.ChangeNotifierProvider(create: (_) => CaptureModeProvider()),
+        provider.ChangeNotifierProvider(create: (_) => HiResCapureProvider()),
       ],
       child: MaterialApp(
         title: 'Snipwise',

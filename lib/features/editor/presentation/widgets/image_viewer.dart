@@ -35,7 +35,7 @@ class ImageViewer extends StatefulWidget {
   final Color backgroundColor;
 
   const ImageViewer({
-    Key? key,
+    super.key,
     required this.imageData,
     this.capturedScale = 1.0,
     required this.transformController,
@@ -45,7 +45,7 @@ class ImageViewer extends StatefulWidget {
     this.onMouseScroll,
     this.onZoomChanged,
     this.backgroundColor = Colors.white,
-  }) : super(key: key);
+  });
 
   @override
   State<ImageViewer> createState() => _ImageViewerState();
@@ -121,13 +121,13 @@ class _ImageViewerState extends State<ImageViewer> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Center(
+      return const Center(
         child: CircularProgressIndicator(),
       );
     }
 
     if (_uiImage == null || _logicalImageSize == null) {
-      return Center(
+      return const Center(
         child: Text('无法加载图像'),
       );
     }

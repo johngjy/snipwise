@@ -210,9 +210,10 @@ class _DraggableExportButtonState extends State<DraggableExportButton>
                         width: widget.size / 3,
                         height: widget.size / 3,
                         decoration: BoxDecoration(
-                          color: _currentFormat == DragExportFormat.png
-                              ? Colors.blue.withOpacity(0.8)
-                              : Colors.orange.withOpacity(0.8),
+                          color: (_currentFormat == DragExportFormat.png
+                                  ? Colors.blue
+                                  : Colors.orange)
+                              .withOpacity(0.8),
                           borderRadius: BorderRadius.only(
                             topLeft: Radius.circular(widget.size / 8),
                             bottomRight: Radius.circular(widget.size / 4),
