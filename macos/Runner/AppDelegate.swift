@@ -3,6 +3,9 @@ import FlutterMacOS
 
 @main
 class AppDelegate: FlutterAppDelegate {
+  // 添加窗口管理器实例
+  private var windowManager: WindowManager?
+  
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return true
   }
@@ -33,5 +36,37 @@ class AppDelegate: FlutterAppDelegate {
     }
     
     super.applicationDidFinishLaunching(notification)
+    
+    // 注册方法通道
+    registerMethodChannels()
+  }
+  
+  private func registerMethodChannels() {
+    guard let controller = NSApplication.shared.mainWindow?.contentViewController as? FlutterViewController else {
+      NSLog("警告: 无法获取FlutterViewController")
+      return
+    }
+    
+    // 初始化窗口管理器
+    windowManager = WindowManager()
+    
+    // 注册窗口管理通道
+    let windowChannel = FlutterMethodChannel(
+      name: "com.snipwise.window",
+      binaryMessenger: controller.engine.binaryMessenger
+    )
+    
+    windowChannel.setMethodCallHandler { [weak self] (call, result) in
+      guard let self = self, let windowManager = self.windowManager else {
+        result(FlutterError(code: "UNAVAILABLE", 
+                           message: "窗口管理器不可用", 
+                           details: nil))
+        return
+      }
+      
+      windowManager.handleWindowMethods(call: call, result: result)
+    }
+    
+    NSLog("窗口管理通道已注册")
   }
 }

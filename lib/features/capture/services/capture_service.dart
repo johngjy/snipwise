@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:path/path.dart' as p;
 
+import '../../../core/services/platform_channel.dart';
 import '../data/models/capture_mode.dart';
 import '../data/models/capture_result.dart';
 
@@ -17,6 +18,7 @@ class CaptureService {
   /// 单例实例
   static final CaptureService instance = CaptureService._internal();
   final _windowManager = WindowManager.instance;
+  final _platformService = PlatformChannelService.instance;
   final _logger = Logger();
 
   /// 全局导航键
@@ -49,51 +51,59 @@ class CaptureService {
 
   /// 辅助方法：隐藏窗口用于截图
   Future<bool> _hideWindowForCapture(String captureModeLabel) async {
-    _logger.d('Attempting to hide window for $captureModeLabel capture...');
+    _logger.d('尝试隐藏窗口进行截图: $captureModeLabel');
     try {
-      await _windowManager.minimize();
-      _logger.d('Window minimized for $captureModeLabel capture.');
+      // 使用平台通道服务隐藏窗口，而不是最小化
+      final result = await _platformService.hideWindow();
+      if (result) {
+        _logger.d('窗口已通过原生通道隐藏用于$captureModeLabel截图');
+      } else {
+        _logger.w('通过原生通道隐藏窗口失败');
+        // 回退到旧方法
+        await _windowManager.minimize();
+        _logger.d('回退: 窗口已最小化用于$captureModeLabel截图');
+      }
       return true;
     } catch (windowError) {
-      _logger.w(
-          'Failed to minimize window for $captureModeLabel: $windowError - proceeding anyway');
-      return false; // 表示窗口隐藏失败，但我们仍然继续
+      _logger.w('隐藏窗口失败: $windowError - 继续尝试截图');
+      return false;
     }
   }
 
   /// 辅助方法：截图后恢复窗口
   Future<void> _restoreWindowAfterCapture(
       bool windowWasHidden, String captureModeLabel) async {
-    _logger.d('$captureModeLabel capture finally block: Restoring window...');
+    _logger.d('$captureModeLabel截图完成: 恢复窗口...');
     if (windowWasHidden) {
       try {
         // 等待足够长时间以确保截图操作完成
         await Future.delayed(const Duration(milliseconds: 300));
 
-        // 直接恢复窗口显示
-        await _windowManager.show();
-        await Future.delayed(const Duration(milliseconds: 200));
-
-        // 尝试获取焦点
-        await _windowManager.focus();
-        _logger
-            .d('Window successfully restored after $captureModeLabel capture.');
+        // 使用平台通道服务显示并激活窗口
+        final result = await _platformService.showAndActivateWindow();
+        if (result) {
+          _logger.d('窗口已通过原生通道显示并激活');
+        } else {
+          _logger.w('通过原生通道显示窗口失败，尝试使用窗口管理器');
+          // 回退到旧方法
+          await _windowManager.show();
+          await Future.delayed(const Duration(milliseconds: 200));
+          await _windowManager.focus();
+          _logger.d('回退: 窗口已通过窗口管理器显示');
+        }
       } catch (restoreError) {
-        _logger
-            .e('Error restoring window after $captureModeLabel: $restoreError');
+        _logger.e('恢复窗口时发生错误: $restoreError');
         // 尝试备用恢复方法
         try {
           await Future.delayed(const Duration(milliseconds: 500));
           await _windowManager.show();
-          _logger.d(
-              'Backup window restore successful after $captureModeLabel capture.');
+          _logger.d('备用窗口恢复成功');
         } catch (e) {
-          _logger.e('Backup window restore failed after $captureModeLabel: $e');
+          _logger.e('备用窗口恢复失败: $e');
         }
       }
     } else {
-      _logger.d(
-          'Window was not hidden for $captureModeLabel, no need to restore.');
+      _logger.d('窗口未隐藏，无需恢复');
     }
   }
 

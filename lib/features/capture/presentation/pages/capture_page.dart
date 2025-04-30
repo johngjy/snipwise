@@ -13,6 +13,7 @@ import '../../services/long_screenshot_service.dart'; // 导入长截图服务
 import '../widgets/delay_menu.dart';
 import '../widgets/video_menu.dart';
 import 'dart:async';
+import '../widgets/native_screenshot_button.dart';
 
 /// 截图选择页面 - 打开软件时显示的主页面
 class CapturePage extends StatefulWidget {
@@ -382,6 +383,19 @@ class _CapturePageState extends State<CapturePage> {
                 ),
             ],
           ),
+        ),
+        floatingActionButton: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            // 添加原生截图按钮
+            NativeScreenshotButton(
+              onScreenshotTaken: () {
+                // 处理截图完成回调
+              },
+            ),
+            const SizedBox(width: 16),
+            // 原有的浮动按钮...
+          ],
         ),
       ),
     );
