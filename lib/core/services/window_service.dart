@@ -21,18 +21,31 @@ class WindowService with WindowListener {
   final _logger = Logger();
 
   /// 最小化窗口
-  Future<void> minimizeWindow() async {
+  Future<void> minimizeWindow({bool withoutAnimation = false}) async {
     try {
       if (Platform.isMacOS) {
-        await _channel.invokeMethod('minimize');
+        if (withoutAnimation) {
+          // 使用无动画最小化
+          await _channel.invokeMethod('minimizeWithoutAnimation');
+          _logger.d('Window minimized without animation');
+        } else {
+          // 使用普通最小化
+          await _channel.invokeMethod('minimize');
+          _logger.d('Window minimized with animation');
+        }
       } else {
         // 使用 window_manager 在其他平台最小化
         await windowManager.minimize();
+        _logger.d('Window minimized using window_manager');
       }
-      _logger.d('Window minimized');
     } catch (e) {
       _logger.e('Failed to minimize window', error: e);
     }
+  }
+
+  /// 无动画最小化窗口 - 截图时使用
+  Future<void> minimizeWindowWithoutAnimation() async {
+    await minimizeWindow(withoutAnimation: true);
   }
 
   /// 关闭窗口

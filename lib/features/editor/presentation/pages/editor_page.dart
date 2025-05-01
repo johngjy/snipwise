@@ -18,6 +18,7 @@ import '../../../../core/services/window_service.dart';
 import '../../../capture/data/models/capture_mode.dart';
 import '../../../capture/services/capture_service.dart';
 import '../../application/providers/editor_providers.dart';
+import '../../application/services/cached_text_service.dart';
 import '../../application/states/tool_state.dart';
 import '../../application/states/canvas_transform_state.dart';
 import '../widgets/hover_menu.dart';
@@ -560,81 +561,79 @@ class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
-    // 获取编辑器状态（不变的部分）
-    final imageData = _imageData;
+    final editorState = ref.watch(editorStateProvider);
+    final showScrollbars = ref.watch(showScrollbarsProvider);
+    final showRulers = ref.watch(showRulersProvider);
+    final selectedTool = ref.watch(toolProvider);
+    final isShiftPressed = ref.watch(keyModifierProvider);
+    final cachedTextService = ref.read(cachedTextServiceProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFEEEEEE), // 浅灰背景
-      body: Column(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        fit: StackFit.expand,
         children: [
-          // 使用 Consumer 包裹工具栏，只在工具状态变化时重建
-          Consumer(
-            builder: (context, ref, child) {
-              final toolState = ref.watch(toolProvider);
-              final selectedToolString =
-                  toolState.currentTool.toString().split('.').last;
+          // 主编辑区域
+          Positioned.fill(
+            child: ColoredBox(
+              color: Theme.of(context).canvasColor,
+              child: _imageAsUiImage == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        _availableEditorSize = Size(
+                          constraints.maxWidth,
+                          constraints.maxHeight,
+                        );
 
-              return EditorToolbar(
-                newButtonLayerLink: _newButtonLayerLink,
-                zoomButtonKey: _toolbarZoomButtonKey,
-                onShowNewButtonMenu: _showNewButtonMenu,
-                onHideNewButtonMenu: () {
-                  // 使用延迟隐藏菜单，防止菜单立即消失
-                  _newButtonHideTimer =
-                      Timer(const Duration(milliseconds: 200), () {
-                    _hideNewButtonMenu();
-                  });
-                },
-                onShowSaveConfirmation: () =>
-                    _captureWithMode(CaptureMode.region), // 直接调用区域截图
-                onSelectTool: _handleToolSelect,
-                selectedTool: selectedToolString,
-                onUndo: () => _logger.i('Undo pressed'),
-                onRedo: () => _logger.i('Redo pressed'),
-                onZoom: () => _showZoomMenu(context, isFromToolbar: true),
-                onSaveImage: _saveImage,
-                onCopyToClipboard: _copyToClipboard,
-              );
-            },
+                        // 使用 Consumer 包裹主内容区域，只在相关状态变化时重建
+                        return Consumer(
+                          builder: (context, ref, child) {
+                            // 监听画布变换状态
+                            final canvasTransform =
+                                ref.watch(canvasTransformProvider);
+                            final zoomLevel = canvasTransform.zoomLevel;
+
+                            return Center(
+                              child: ImageViewer(
+                                imageData: _imageData,
+                                capturedScale: _capturedScale,
+                                transformController: _transformController,
+                                minZoom: CanvasTransformState.minZoom,
+                                maxZoom: CanvasTransformState.maxZoom,
+                                zoomLevel: zoomLevel,
+                                onMouseScroll: _handleMouseScroll,
+                                onZoomChanged: (scale) {
+                                  if (mounted &&
+                                      (zoomLevel - scale).abs() > 0.01) {
+                                    ref
+                                        .read(canvasTransformProvider.notifier)
+                                        .setZoomLevel(scale);
+                                  }
+                                },
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+            ),
           ),
 
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // 更新可用尺寸以供调整窗口大小使用
-                _availableEditorSize = Size(
-                  constraints.maxWidth,
-                  constraints.maxHeight,
-                );
-
-                // 使用 Consumer 包裹主内容区域，只在相关状态变化时重建
-                return Consumer(
-                  builder: (context, ref, child) {
-                    // 监听画布变换状态
-                    final canvasTransform = ref.watch(canvasTransformProvider);
-                    final zoomLevel = canvasTransform.zoomLevel;
-
-                    return Center(
-                      child: ImageViewer(
-                        imageData: imageData,
-                        capturedScale: _capturedScale,
-                        transformController: _transformController,
-                        minZoom: CanvasTransformState.minZoom,
-                        maxZoom: CanvasTransformState.maxZoom,
-                        zoomLevel: zoomLevel,
-                        onMouseScroll: _handleMouseScroll,
-                        onZoomChanged: (scale) {
-                          if (mounted && (zoomLevel - scale).abs() > 0.01) {
-                            ref
-                                .read(canvasTransformProvider.notifier)
-                                .setZoomLevel(scale);
-                          }
-                        },
-                      ),
-                    );
-                  },
-                );
-              },
+          // 顶部工具栏
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: EditorToolbar.screenshot(
+              onShowSaveConfirmation: _showSaveConfirmationDialog,
+              onShowNewButtonMenu: _showNewButtonMenu,
+              onSave: _handleSave,
+              onShowZoomMenu: () => _showZoomMenu(context, isFromToolbar: true),
+              toolbarKey: _newButtonLayerLink,
+              zoomKey: _toolbarZoomButtonKey,
+              onShowCachedText: () =>
+                  cachedTextService.showCachedTextDialog(context, ref),
             ),
           ),
 
@@ -643,7 +642,7 @@ class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
             builder: (context, ref, child) {
               final canvasTransform = ref.watch(canvasTransformProvider);
               return EditorStatusBar(
-                imageData: imageData,
+                imageData: _imageData,
                 zoomLevel: canvasTransform.zoomLevel,
                 minZoom: CanvasTransformState.minZoom,
                 maxZoom: CanvasTransformState.maxZoom,
@@ -840,9 +839,16 @@ class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
       ref.read(layoutProvider.notifier).initialize(screenSize);
 
       // 4. 加载新截图数据到编辑器状态（这会触发布局重新计算）
-      final initialScale = ref
-          .read(editorStateProvider.notifier)
-          .loadScreenshotWithLayout(imageData, imageSize);
+      double initialScale = 1.0;
+      try {
+        initialScale = ref
+            .read(editorStateProvider.notifier)
+            .loadScreenshotWithLayout(imageData, imageSize);
+      } catch (e) {
+        _logger.e('加载截图数据失败: $e');
+        // 使用默认值
+        initialScale = 1.0;
+      }
       _logger.d('初始缩放比例: $initialScale');
 
       // 5. 获取计算出的新窗口尺寸
@@ -886,5 +892,19 @@ class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
         ref.read(editorStateProvider.notifier).setLoading(false);
       }
     }
+  }
+
+  // Placeholder for missing method
+  void _showSaveConfirmationDialog() {
+    _logger.w('_showSaveConfirmationDialog is not implemented yet.');
+    // TODO: Implement save confirmation logic if needed
+  }
+
+  // Placeholder for missing method
+  Future<void> _handleSave() async {
+    _logger.w('_handleSave is not implemented yet.');
+    // TODO: Implement save logic
+    // Example: Call a service to save _imageData
+    // Show feedback (Snackbar, etc.)
   }
 }

@@ -15,10 +15,24 @@ dependencies:
     
   # 状态管理
   provider: ^6.1.1
+  riverpod: ^2.6.1
+  flutter_riverpod: ^2.6.1
+  hooks_riverpod: ^2.6.1
+  freezed_annotation: ^3.0.0
+  json_annotation: ^4.9.0
   
   # UI 工具
-  cupertino_icons: ^1.0.2
+  cupertino_icons: ^1.0.5
   flutter_svg: ^2.0.9
+  google_fonts: ^6.2.1
+  phosphor_flutter: ^2.1.0
+  
+  # 编辑器相关
+  flutter_painter: ^1.0.1  # 确定使用 1.0.1 (保留，以防v2无效或需要对比)
+  font_awesome_flutter: ^10.1.0  # 图标
+  perfect_freehand: ^1.0.4  # 手绘优化
+  flex_color_picker: ^3.7.1  # 颜色选择器
+  popover: ^0.2.8  # 弹出控件
   
   # 功能性包
   image: ^4.0.17
@@ -31,6 +45,7 @@ dependencies:
   desktop_window: ^0.4.0
   window_manager: ^0.4.3
   screen_capturer: ^0.2.3
+  screen_retriever: ^0.2.0
   
   # 国际化
   intl: ^0.19.0
@@ -43,29 +58,28 @@ dependencies:
   isar_flutter_libs: ^3.1.0+1
   path: ^1.8.3
   clipboard_watcher: ^0.3.0
-  google_fonts: ^6.2.1
-  phosphor_flutter: ^2.1.0
   vector_math: ^2.1.4
-  screen_retriever: ^0.2.0
   go_router: ^15.1.1
   image_picker: ^1.1.2
   permission_handler: ^12.0.0+1
   url_launcher: ^6.3.1
-  riverpod: ^2.6.1
-  flutter_riverpod: ^2.6.1
-  hooks_riverpod: ^2.6.1
-  freezed: ^3.0.6
-  freezed_annotation: ^3.0.0
+  tray_manager: ^0.5.0
+  file_saver: ^0.2.14
+  flutter_painter_v2: ^2.1.0+1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.1
   build_runner: ^2.4.15
+  freezed: ^3.0.6
+  json_serializable: ^6.6.1
 
 flutter:
   uses-material-design: true
   
   assets:
     - assets/images/
-    - assets/icons/ 
+    - assets/icons/
+  
+  # 在assets部分添加状态栏图标资源 

@@ -1,30 +1,42 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Import for RawKeyboardListener
-import 'package:provider/provider.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:logger/logger.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:screen_capturer/screen_capturer.dart' hide CaptureMode;
+import 'package:screen_retriever/screen_retriever.dart';
+
+import '../../../../core/services/window_service.dart';
+import '../../../../core/widgets/standard_app_bar.dart';
 import '../providers/capture_mode_provider.dart';
 import '../../data/models/capture_mode.dart';
-import '../../../../core/widgets/standard_app_bar.dart'; // 导入标准化顶部栏
+import '../../data/models/capture_result.dart';
 import '../../services/capture_service.dart';
-import '../../../../core/services/window_service.dart'; // 重新导入窗口服务
-import '../../services/long_screenshot_service.dart'; // 导入长截图服务
+import '../../services/long_screenshot_service.dart';
 import '../widgets/delay_menu.dart';
 import '../widgets/video_menu.dart';
-import 'dart:async';
-import '../widgets/native_screenshot_button.dart';
 
 /// 截图选择页面 - 打开软件时显示的主页面
-class CapturePage extends StatefulWidget {
+// 创建一个Provider用于管理截图模式
+final captureModeProvider = ChangeNotifierProvider<CaptureModeProvider>((ref) {
+  return CaptureModeProvider();
+});
+
+class CapturePage extends ConsumerStatefulWidget {
   final CaptureMode? initialCaptureMode;
   const CapturePage({super.key, this.initialCaptureMode});
 
   @override
-  State<CapturePage> createState() => _CapturePageState();
+  ConsumerState<CapturePage> createState() => _CapturePageState();
 }
 
-class _CapturePageState extends State<CapturePage> {
+class _CapturePageState extends ConsumerState<CapturePage> {
   /// 是否正在加载截图
   bool _isLoadingCapture = false;
 
@@ -345,7 +357,7 @@ class _CapturePageState extends State<CapturePage> {
   void _delayCapture(Duration delay) {
     _hideDelayMenu();
     if (mounted) {
-      final provider = context.read<CaptureModeProvider>();
+      final provider = ref.read(captureModeProvider);
       final mode = provider.currentMode;
       _triggerCapture(mode, delay: delay);
     }
@@ -384,19 +396,6 @@ class _CapturePageState extends State<CapturePage> {
             ],
           ),
         ),
-        floatingActionButton: Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            // 添加原生截图按钮
-            NativeScreenshotButton(
-              onScreenshotTaken: () {
-                // 处理截图完成回调
-              },
-            ),
-            const SizedBox(width: 16),
-            // 原有的浮动按钮...
-          ],
-        ),
       ),
     );
   }
@@ -407,6 +406,37 @@ class _CapturePageState extends State<CapturePage> {
       centerTitle: true,
       backgroundColor: const Color(0xFFEAEAEA),
       titleColor: Colors.grey[800]!,
+      extraActions: [
+        // 添加设置按钮
+        IconButton(
+          icon: const Icon(Icons.settings_outlined, size: 18),
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('设置功能待实现')),
+            );
+          },
+          tooltip: '设置',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          splashRadius: 16,
+        ),
+        const SizedBox(width: 8),
+        // 添加帮助按钮
+        IconButton(
+          icon: const Icon(Icons.help_outline, size: 18),
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('帮助功能待实现')),
+            );
+          },
+          tooltip: '帮助',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          splashRadius: 16,
+        ),
+      ],
+      // 在macOS上强制显示窗口控制按钮
+      forceShowWindowControls: true,
     );
   }
 
@@ -414,41 +444,39 @@ class _CapturePageState extends State<CapturePage> {
   Widget _buildMenuList() {
     return Container(
       color: const Color(0xFFEAEAEA), // 确保背景色与父容器一致
-      child: Consumer<CaptureModeProvider>(
-        builder: (context, provider, child) => ListView.builder(
-          // 减少顶部边距，让菜单项更紧凑
-          padding: const EdgeInsets.fromLTRB(10.0, 0.0, 10.0, 2.0),
-          itemCount: _menuItems.length,
-          itemBuilder: (context, index) {
-            final item = _menuItems[index];
+      child: ListView.builder(
+        // 减少顶部边距，让菜单项更紧凑
+        padding: const EdgeInsets.fromLTRB(10.0, 0.0, 10.0, 2.0),
+        itemCount: _menuItems.length,
+        itemBuilder: (context, index) {
+          final item = _menuItems[index];
 
-            // 处理需要使用LayerLink的特殊菜单项
-            if (item.useLayerLink) {
-              return CompositedTransformTarget(
-                link: item.layerLinkKey == 'delay'
-                    ? _delayLayerLink
-                    : _videoLayerLink,
-                child: _buildMenuItem(
-                  icon: item.icon,
-                  label: item.label,
-                  showRightArrow: item.showRightArrow,
-                  isSelected: item.layerLinkKey == 'delay'
-                      ? _isDelayMenuVisible
-                      : _isVideoMenuVisible,
-                  onTap: item.onTap,
-                ),
-              );
-            }
-
-            // 常规菜单项
-            return _buildMenuItem(
-              icon: item.icon,
-              label: item.label,
-              shortcut: item.shortcut,
-              onTap: item.onTap,
+          // 处理需要使用LayerLink的特殊菜单项
+          if (item.useLayerLink) {
+            return CompositedTransformTarget(
+              link: item.layerLinkKey == 'delay'
+                  ? _delayLayerLink
+                  : _videoLayerLink,
+              child: _buildMenuItem(
+                icon: item.icon,
+                label: item.label,
+                showRightArrow: item.showRightArrow,
+                isSelected: item.layerLinkKey == 'delay'
+                    ? _isDelayMenuVisible
+                    : _isVideoMenuVisible,
+                onTap: item.onTap,
+              ),
             );
-          },
-        ),
+          }
+
+          // 常规菜单项
+          return _buildMenuItem(
+            icon: item.icon,
+            label: item.label,
+            shortcut: item.shortcut,
+            onTap: item.onTap,
+          );
+        },
       ),
     );
   }
@@ -549,21 +577,42 @@ class _CapturePageState extends State<CapturePage> {
     _logger.i('Triggering capture for mode: $mode with delay: $delay');
 
     try {
-      // 调用 CaptureService 执行截图并直接导航到编辑器
-      await CaptureService.instance.captureAndNavigateToEditor(context, mode);
-      _logger.i('Capture completed and navigated to editor for mode: $mode');
+      // 调用 CaptureService 执行截图
+      final CaptureResult? result = await CaptureService.instance.capture(
+        mode,
+        delay: delay,
+      );
+
+      if (!mounted) return; // 检查组件是否仍然挂载
+
+      if (result != null && result.hasData) {
+        _logger
+            .i('Capture successful for mode: $mode, navigating to editor...');
+        // 导航到编辑器页面 - 使用GoRouter
+        context.push(
+          '/editor',
+          extra: {
+            'imageData': result.imageBytes,
+            'scale': result.scale,
+            'logicalRect': result.logicalRect,
+          },
+        );
+      } else {
+        _logger.w('Capture for mode $mode did not return valid data.');
+        // 如果需要，可以在这里显示取消或失败的消息
+        // ScaffoldMessenger.of(context).showSnackBar(
+        //   const SnackBar(content: Text('截图已取消或失败')),
+        // );
+      }
     } catch (e, stackTrace) {
       _logger.e('Error during _triggerCapture for mode $mode',
           error: e, stackTrace: stackTrace);
-      // CaptureService 内部已经处理错误显示，这里只记录
       if (mounted) {
-        // 可以选择在这里显示通用错误提示
-        // ScaffoldMessenger.of(context).showSnackBar(
-        //   SnackBar(content: Text('截图时发生未知错误: $e')),
-        // );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('截图时发生错误: $e')),
+        );
       }
     } finally {
-      // 确保在完成后重置加载状态
       if (mounted) {
         setState(() {
           _isLoadingCapture = false;
@@ -717,7 +766,6 @@ class _CapturePageState extends State<CapturePage> {
           HardwareKeyboard.instance.isControlPressed; // Control on Win/Linux
 
       if (!mounted) return; // Check mount status
-      final provider = context.read<CaptureModeProvider>();
       CaptureMode? targetMode;
 
       // 快捷键2: 区域截图
@@ -749,6 +797,7 @@ class _CapturePageState extends State<CapturePage> {
 
       // 如果匹配到截图快捷键，则设置模式并触发截图
       if (targetMode != null) {
+        final provider = ref.read(captureModeProvider);
         provider.setMode(targetMode);
         _triggerCapture(targetMode); // 直接触发
       }

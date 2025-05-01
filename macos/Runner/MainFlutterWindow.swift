@@ -256,6 +256,57 @@ func UTI(fileExtension: String) -> String {
     }
 }
 
+// MARK: - 窗口通道处理类
+class WindowChannel: NSObject, FlutterPlugin {
+    static func register(with registrar: FlutterPluginRegistrar) {
+        let channel = FlutterMethodChannel(name: "com.snipwise.app/window", binaryMessenger: registrar.messenger)
+        let instance = WindowChannel()
+        registrar.addMethodCallDelegate(instance, channel: channel)
+        NSLog("WindowChannel已注册 - 窗口操作处理器")
+    }
+    
+    func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        NSLog("WindowChannel: 收到方法调用 \(call.method)")
+        
+        switch call.method {
+        case "minimize":
+            minimizeWindow(result: result)
+        case "minimizeWithoutAnimation":
+            minimizeWithoutAnimation(result: result)
+        default:
+            result(FlutterMethodNotImplemented)
+        }
+    }
+    
+    private func minimizeWindow(result: FlutterResult) {
+        if let window = NSApplication.shared.mainWindow {
+            window.miniaturize(nil)
+            NSLog("WindowChannel: 普通最小化窗口")
+            result(nil)
+        } else {
+            NSLog("WindowChannel: 找不到主窗口，无法最小化")
+            result(FlutterError(code: "NO_WINDOW", message: "找不到主窗口", details: nil))
+        }
+    }
+    
+    private func minimizeWithoutAnimation(result: FlutterResult) {
+        NSLog("WindowChannel: -> minimizeWithoutAnimation 开始执行")
+        if let window = NSApplication.shared.mainWindow {
+            NSLog("WindowChannel: 获取到主窗口，准备禁用动画")
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            NSLog("WindowChannel: 动画时长设置为0")
+            window.miniaturize(nil)
+            NSAnimationContext.endGrouping()
+            NSLog("WindowChannel: 无动画最小化窗口已调用")
+            result(nil)
+        } else {
+            NSLog("WindowChannel: 找不到主窗口，无法无动画最小化")
+            result(FlutterError(code: "NO_WINDOW", message: "找不到主窗口", details: nil))
+        }
+    }
+}
+
 // MARK: - 主窗口类
 
 class MainFlutterWindow: NSWindow {
@@ -272,6 +323,33 @@ class MainFlutterWindow: NSWindow {
     let registrar = flutterViewController.registrar(forPlugin: "DragExportPlugin")
     DragExportPlugin.register(with: registrar)
     NSLog("DragExportPlugin已手动注册 - 使用MainFlutterWindow中的实现")
+    
+    // 注册窗口通道插件
+    let windowRegistrar = flutterViewController.registrar(forPlugin: "WindowChannel")
+    WindowChannel.register(with: windowRegistrar)
+    
+    // 注册状态栏管理器
+    NSLog("MainFlutterWindow: 准备注册状态栏管理器")
+    let statusBarRegistrar = flutterViewController.registrar(forPlugin: "StatusItemManager")
+    
+    // 将FlutterViewController传递给StatusItemManager - 使用延迟确保 Flutter 引擎已完全初始化
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        NSLog("MainFlutterWindow: 延迟设置FlutterViewController")
+        StatusItemManager.shared.setFlutterViewController(flutterViewController)
+        NSLog("MainFlutterWindow: 已将FlutterViewController设置到StatusItemManager")
+    }
+    
+    // 注册状态栏管理器
+    StatusItemManager.register(with: statusBarRegistrar)
+    NSLog("MainFlutterWindow: 状态栏管理器注册完成")
+    
+    // 使用延迟执行初始化状态栏，确保其他组件已完成初始化
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        // 通过方法通道初始化状态栏
+        let channel = FlutterMethodChannel(name: "com.snipwise.app/status_bar", binaryMessenger: flutterViewController.engine.binaryMessenger)
+        channel.invokeMethod("initialize", arguments: nil)
+        NSLog("StatusItemManager: 状态栏初始化完成")
+    }
 
     super.awakeFromNib()
   }

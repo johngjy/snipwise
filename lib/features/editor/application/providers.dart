@@ -94,12 +94,13 @@ extension EditorStateNotifierExtension on EditorStateNotifier {
     state = state.copyWith(wallpaperPadding: padding);
 
     // 如果没有图像尺寸，不重新计算布局
-    if (state.originalImageSize == null) return;
+    final currentImageSize = state.originalImageSize;
+    if (currentImageSize == null) return;
 
     // 调用LayoutNotifier重新计算布局，可能会调整缩放
     double newScale = ref
         .read(layoutProvider.notifier)
-        .recalculateLayoutForNewContent(state.originalImageSize!, padding);
+        .recalculateLayoutForNewContent(currentImageSize, padding);
 
     // 如果需要调整缩放（小于1.0表示内容需要缩小以适应窗口）
     if (newScale < 1.0) {
@@ -120,7 +121,8 @@ extension EditorStateNotifierExtension on EditorStateNotifier {
 
   /// 裁剪图像并重新计算布局
   void cropImageWithLayout(Rect rect) {
-    if (state.originalImageSize == null) return;
+    final currentImageSize = state.originalImageSize;
+    if (currentImageSize == null) return;
 
     final Size newSize = Size(rect.width, rect.height);
 

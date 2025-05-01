@@ -5,11 +5,11 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import 'package:screen_capturer/screen_capturer.dart' as screen_capturer;
+import 'package:screen_retriever/screen_retriever.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:path/path.dart' as p;
 
-import '../../../core/services/platform_channel.dart';
 import '../data/models/capture_mode.dart';
 import '../data/models/capture_result.dart';
 
@@ -18,7 +18,6 @@ class CaptureService {
   /// 单例实例
   static final CaptureService instance = CaptureService._internal();
   final _windowManager = WindowManager.instance;
-  final _platformService = PlatformChannelService.instance;
   final _logger = Logger();
 
   /// 全局导航键
@@ -51,59 +50,52 @@ class CaptureService {
 
   /// 辅助方法：隐藏窗口用于截图
   Future<bool> _hideWindowForCapture(String captureModeLabel) async {
-    _logger.d('尝试隐藏窗口进行截图: $captureModeLabel');
+    _logger.d('Attempting to hide window for $captureModeLabel capture...');
     try {
-      // 使用平台通道服务隐藏窗口，而不是最小化
-      final result = await _platformService.hideWindow();
-      if (result) {
-        _logger.d('窗口已通过原生通道隐藏用于$captureModeLabel截图');
-      } else {
-        _logger.w('通过原生通道隐藏窗口失败');
-        // 回退到旧方法
-        await _windowManager.minimize();
-        _logger.d('回退: 窗口已最小化用于$captureModeLabel截图');
-      }
+      // 使用透明化窗口代替最小化
+      await _windowManager.setOpacity(0.0);
+      _logger.d('Window opacity set to 0 for $captureModeLabel capture.');
       return true;
     } catch (windowError) {
-      _logger.w('隐藏窗口失败: $windowError - 继续尝试截图');
-      return false;
+      _logger.w(
+          'Failed to hide window for $captureModeLabel: $windowError - proceeding anyway');
+      return false; // 表示窗口隐藏失败，但我们仍然继续
     }
   }
 
   /// 辅助方法：截图后恢复窗口
   Future<void> _restoreWindowAfterCapture(
       bool windowWasHidden, String captureModeLabel) async {
-    _logger.d('$captureModeLabel截图完成: 恢复窗口...');
+    _logger.d('$captureModeLabel capture finally block: Restoring window...');
     if (windowWasHidden) {
       try {
         // 等待足够长时间以确保截图操作完成
-        await Future.delayed(const Duration(milliseconds: 300));
+        await Future.delayed(const Duration(milliseconds: 100));
 
-        // 使用平台通道服务显示并激活窗口
-        final result = await _platformService.showAndActivateWindow();
-        if (result) {
-          _logger.d('窗口已通过原生通道显示并激活');
-        } else {
-          _logger.w('通过原生通道显示窗口失败，尝试使用窗口管理器');
-          // 回退到旧方法
-          await _windowManager.show();
-          await Future.delayed(const Duration(milliseconds: 200));
-          await _windowManager.focus();
-          _logger.d('回退: 窗口已通过窗口管理器显示');
-        }
+        // 直接恢复窗口显示
+        await _windowManager.setOpacity(1.0);
+        await Future.delayed(const Duration(milliseconds: 50));
+
+        // 尝试获取焦点
+        await _windowManager.focus();
+        _logger
+            .d('Window successfully restored after $captureModeLabel capture.');
       } catch (restoreError) {
-        _logger.e('恢复窗口时发生错误: $restoreError');
+        _logger
+            .e('Error restoring window after $captureModeLabel: $restoreError');
         // 尝试备用恢复方法
         try {
-          await Future.delayed(const Duration(milliseconds: 500));
-          await _windowManager.show();
-          _logger.d('备用窗口恢复成功');
+          await Future.delayed(const Duration(milliseconds: 200));
+          await _windowManager.setOpacity(1.0);
+          _logger.d(
+              'Backup window restore successful after $captureModeLabel capture.');
         } catch (e) {
-          _logger.e('备用窗口恢复失败: $e');
+          _logger.e('Backup window restore failed after $captureModeLabel: $e');
         }
       }
     } else {
-      _logger.d('窗口未隐藏，无需恢复');
+      _logger.d(
+          'Window was not hidden for $captureModeLabel, no need to restore.');
     }
   }
 
@@ -226,7 +218,7 @@ class CaptureService {
             'Error checking permission during $modeLabel capture: $permissionError - will try to capture anyway');
       }
 
-      // 2. 隐藏窗口
+      // 2. 隐藏窗口，使用透明化而不是最小化
       windowHidden = await _hideWindowForCapture(modeLabel);
       // 即使隐藏失败，windowHidden 可能是 false，但我们仍然继续
 
@@ -243,11 +235,11 @@ class CaptureService {
         silent: true,
       );
 
-      // 5. 处理截图结果 (保持不变)
+      // 5. 处理截图结果
       if (capturedData == null) {
-        _logger.w(
-            'Fullscreen capture returned null data. Capture might have failed or been cancelled.');
-        return null;
+        _logger
+            .i('Fullscreen capture cancelled by user or failed (null data).');
+        return null; // 用户可能取消了选择
       }
 
       _logger.d(
@@ -256,57 +248,130 @@ class CaptureService {
       Uint8List? imageBytes = capturedData.imageBytes;
       String imagePath = capturedData.imagePath ?? tempFilePath;
 
-      // 6. 检查图像数据，如果直接返回的数据为空，尝试从文件读取
-      if (imageBytes == null || imageBytes.isEmpty) {
-        _logger.w(
-            'No direct imageBytes returned. Attempting to read from file: $imagePath');
+      if (imageBytes == null && imagePath.isNotEmpty) {
         try {
-          final file = File(imagePath);
-          if (await file.exists()) {
-            imageBytes = await file.readAsBytes();
-            if (imageBytes.isNotEmpty) {
-              _logger
-                  .d('Successfully read ${imageBytes.length} bytes from file.');
-            } else {
-              _logger.e('File exists but is empty: $imagePath');
-              imageBytes = null;
-            }
-          } else {
-            _logger.e('Capture file does not exist at path: $imagePath');
-            imageBytes = null;
-          }
-        } catch (fileError) {
-          _logger.e('Error reading capture file: $imagePath', error: fileError);
-          imageBytes = null;
+          _logger.d('Reading image bytes from file: $imagePath');
+          imageBytes = await File(imagePath).readAsBytes();
+          _logger.d('Successfully read ${imageBytes.length} bytes from file.');
+        } catch (e) {
+          _logger.e('Failed to read image file: $e');
+          return null;
         }
       }
 
-      // 7. 如果最终没有图像数据，则截图失败
-      if (imageBytes == null || imageBytes.isEmpty) {
-        _logger.e('Failed to obtain image data for fullscreen capture.');
+      if (imageBytes == null) {
+        _logger.e('Fullscreen capture failed to get image bytes.');
         return null;
       }
 
-      // 8. 构建并返回 CaptureResult
+      // 6. 获取屏幕尺寸 (逻辑尺寸) - 使用 screen_retriever
+      final display = await screenRetriever.getPrimaryDisplay();
+      final screenWidth = display.size.width;
+      final screenHeight = display.size.height;
+      final logicalRect = Rect.fromLTWH(0, 0, screenWidth, screenHeight);
       _logger.d(
-          'Fullscreen capture successful. Image size: ${imageBytes.length} bytes. Scale: $currentScale');
-      return CaptureResult(
+        'Primary display logical size: ${screenWidth}x$screenHeight, scale: ${display.scaleFactor}',
+      );
+
+      // 7. 创建并返回结果
+      final result = CaptureResult(
         imageBytes: imageBytes,
         imagePath: imagePath,
-        region: CaptureRegion(
-          x: 0,
-          y: 0,
-          width: capturedData.imageWidth?.toDouble() ?? 0.0,
-          height: capturedData.imageHeight?.toDouble() ?? 0.0,
-        ),
+        logicalRect: logicalRect,
         scale: currentScale,
       );
-    } catch (e, stackTrace) {
-      _logger.e('Error during $modeLabel capture internal process',
-          error: e, stackTrace: stackTrace);
+      _logger.i('Fullscreen capture successful');
+      return result;
+    } catch (e) {
+      _logger.e('Fullscreen capture error', error: e);
       return null;
     } finally {
-      // 9. 恢复窗口
+      await _restoreWindowAfterCapture(windowHidden, modeLabel);
+    }
+  }
+
+  /// 区域截图 - 内部实现
+  Future<CaptureResult?> _captureRegionInternal() async {
+    final double currentScale = _getCurrentDevicePixelRatio();
+    const String modeLabel = 'region';
+    _logger.d('Starting $modeLabel capture (internal)...');
+    final tempFilePath = await _getTemporaryFilePath();
+    _logger.d('Target temporary file: $tempFilePath');
+
+    bool windowHidden = false;
+    try {
+      windowHidden = await _hideWindowForCapture(modeLabel);
+      await Future.delayed(const Duration(milliseconds: 200));
+
+      _logger.d('Calling screen_capturer.capture(mode: region)...');
+      final capturedData =
+          await screen_capturer.ScreenCapturer.instance.capture(
+        mode: screen_capturer.CaptureMode.region,
+        imagePath: tempFilePath,
+        copyToClipboard: false,
+        silent: true,
+      );
+
+      if (capturedData == null) {
+        _logger.i('Region capture cancelled or failed (null data).');
+        return null;
+      }
+
+      _logger.d(
+        'Region capture finished. Image path: ${capturedData.imagePath}, imageWidth: ${capturedData.imageWidth}, imageHeight: ${capturedData.imageHeight}, Bytes length: ${capturedData.imageBytes?.length}',
+      );
+
+      Uint8List? imageBytes = capturedData.imageBytes;
+      String imagePath = capturedData.imagePath ?? tempFilePath;
+
+      if (imageBytes == null && imagePath.isNotEmpty) {
+        try {
+          _logger.d('Reading image bytes from file: $imagePath');
+          imageBytes = await File(imagePath).readAsBytes();
+          _logger.d('Successfully read ${imageBytes.length} bytes from file.');
+        } catch (e) {
+          _logger.e('Failed to read image file: $e');
+          return null;
+        }
+      }
+
+      if (imageBytes == null) {
+        _logger.e('Region capture failed to get image bytes.');
+        return null;
+      }
+
+      if (capturedData.imageWidth == null || capturedData.imageHeight == null) {
+        _logger.e('Region capture failed to get capture dimensions.');
+        return null;
+      }
+
+      // 计算逻辑Rect - 使用imageWidth和imageHeight
+      final physicalWidth = capturedData.imageWidth!.toDouble();
+      final physicalHeight = capturedData.imageHeight!.toDouble();
+      // 对于区域截图，我们假设左上角是 (0,0) 因为没有提供rect
+      final logicalRect = Rect.fromLTWH(
+        0,
+        0,
+        physicalWidth / currentScale,
+        physicalHeight / currentScale,
+      );
+      _logger.d(
+        'Calculated logical Rect: $logicalRect from physical size: ${physicalWidth}x$physicalHeight with scale: $currentScale',
+      );
+
+      final result = CaptureResult(
+        imageBytes: imageBytes,
+        imagePath: imagePath,
+        logicalRect: logicalRect,
+        scale: currentScale,
+      );
+
+      _logger.i('Region capture successful');
+      return result;
+    } catch (e) {
+      _logger.e('Region capture error', error: e);
+      return null;
+    } finally {
       await _restoreWindowAfterCapture(windowHidden, modeLabel);
     }
   }
@@ -321,365 +386,79 @@ class CaptureService {
 
     bool windowHidden = false;
     try {
-      // 1. 检查权限 (保持不变)
-      try {
-        final isAccessAllowed =
-            await screen_capturer.ScreenCapturer.instance.isAccessAllowed();
-        if (!isAccessAllowed) {
-          _logger.w(
-              'No screen capture permission before window capture. Requesting access...');
-          await screen_capturer.ScreenCapturer.instance.requestAccess();
-
-          // 权限请求后我们需要重新检查
-          final accessGranted =
-              await screen_capturer.ScreenCapturer.instance.isAccessAllowed();
-          if (!accessGranted) {
-            _logger.e(
-                'User denied screen capture permission during window capture.');
-            return null;
-          }
-        }
-      } catch (permissionError) {
-        _logger.w(
-            'Error checking permission during $modeLabel capture: $permissionError - will try to capture anyway');
-      }
-
-      // 2. 隐藏窗口
       windowHidden = await _hideWindowForCapture(modeLabel);
+      await Future.delayed(const Duration(milliseconds: 200));
 
-      // 3. 延迟 (保持不变)
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      // 4. 调用 screen_capturer (保持不变)
       _logger.d('Calling screen_capturer.capture(mode: window)...');
       final capturedData =
           await screen_capturer.ScreenCapturer.instance.capture(
         mode: screen_capturer.CaptureMode.window,
         imagePath: tempFilePath,
         copyToClipboard: false,
-        silent: false,
+        silent: true,
       );
 
-      // 5. 处理截图结果 (保持不变)
       if (capturedData == null) {
-        _logger.i('Window capture cancelled by user or failed (null data).');
-        return null; // 用户可能取消了选择
+        _logger.i('Window capture cancelled or failed (null data).');
+        return null;
       }
 
       _logger.d(
-          'screen_capturer.capture finished. Image path: ${capturedData.imagePath}, Bytes length: ${capturedData.imageBytes?.length}');
+        'Window capture finished. Image path: ${capturedData.imagePath}, imageWidth: ${capturedData.imageWidth}, imageHeight: ${capturedData.imageHeight}, Bytes length: ${capturedData.imageBytes?.length}',
+      );
 
       Uint8List? imageBytes = capturedData.imageBytes;
       String imagePath = capturedData.imagePath ?? tempFilePath;
 
-      // 6. 检查图像数据，如果直接返回的数据为空，尝试从文件读取
-      if (imageBytes == null || imageBytes.isEmpty) {
-        _logger.w(
-            'No direct imageBytes returned for window capture. Attempting to read from file: $imagePath');
+      if (imageBytes == null && imagePath.isNotEmpty) {
         try {
-          final file = File(imagePath);
-          if (await file.exists()) {
-            imageBytes = await file.readAsBytes();
-            if (imageBytes.isNotEmpty) {
-              _logger
-                  .d('Successfully read ${imageBytes.length} bytes from file.');
-            } else {
-              _logger.e('Window capture file exists but is empty: $imagePath');
-              imageBytes = null;
-            }
-          } else {
-            _logger.e('Window capture file does not exist at path: $imagePath');
-            imageBytes = null;
-          }
-        } catch (fileError) {
-          _logger.e('Error reading window capture file: $imagePath',
-              error: fileError);
-          imageBytes = null;
+          _logger.d('Reading image bytes from file: $imagePath');
+          imageBytes = await File(imagePath).readAsBytes();
+          _logger.d('Successfully read ${imageBytes.length} bytes from file.');
+        } catch (e) {
+          _logger.e('Failed to read image file: $e');
+          return null;
         }
       }
 
-      // 7. 如果最终没有图像数据，则截图失败
-      if (imageBytes == null || imageBytes.isEmpty) {
-        _logger.e('Failed to obtain image data for window capture.');
+      if (imageBytes == null) {
+        _logger.e('Window capture failed to get image bytes.');
         return null;
       }
 
-      // 8. 构建并返回 CaptureResult
-      _logger.d(
-          'Window capture successful. Image size: ${imageBytes.length} bytes. Scale: $currentScale');
-      return CaptureResult(
-        imageBytes: imageBytes,
-        imagePath: imagePath,
-        region: CaptureRegion(
-          x: 0,
-          y: 0,
-          width: capturedData.imageWidth?.toDouble() ?? 0.0,
-          height: capturedData.imageHeight?.toDouble() ?? 0.0,
-        ),
-        scale: currentScale,
-      );
-    } catch (e, stackTrace) {
-      _logger.e('Error during $modeLabel capture internal process',
-          error: e, stackTrace: stackTrace);
-      return null;
-    } finally {
-      // 9. 恢复窗口
-      await _restoreWindowAfterCapture(windowHidden, modeLabel);
-    }
-  }
-
-  /// 区域截图 - 内部实现
-  Future<CaptureResult?> _captureRegionInternal() async {
-    final double currentScale = _getCurrentDevicePixelRatio();
-    const String modeLabel = 'region';
-    _logger.d('Starting $modeLabel capture (internal)...');
-    final tempFilePath = await _getTemporaryFilePath();
-    _logger.d('Target temporary file: $tempFilePath');
-    _logger.d('Current screen scale (DPR): $currentScale');
-
-    bool windowHidden = false;
-    try {
-      // 1. 检查权限
-      try {
-        final isAccessAllowed =
-            await screen_capturer.ScreenCapturer.instance.isAccessAllowed();
-        _logger.d('Screen capture access allowed: $isAccessAllowed');
-
-        if (!isAccessAllowed) {
-          _logger.w(
-              'No screen capture permission before capture. Requesting access...');
-          await screen_capturer.ScreenCapturer.instance.requestAccess();
-
-          // 权限请求后我们需要重新检查
-          final accessGranted =
-              await screen_capturer.ScreenCapturer.instance.isAccessAllowed();
-          if (!accessGranted) {
-            _logger.e('User denied screen capture permission during capture.');
-            return null;
-          }
-        }
-      } catch (permissionError) {
-        _logger.w(
-            'Error checking permission during $modeLabel capture: $permissionError - will try to capture anyway');
-      }
-
-      // 2. 隐藏窗口
-      windowHidden = await _hideWindowForCapture(modeLabel);
-
-      // 3. 延迟
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      // 4. 调用 screen_capturer
-      _logger.d('Calling screen_capturer.capture(mode: region)...');
-      final capturedData =
-          await screen_capturer.ScreenCapturer.instance.capture(
-        mode: screen_capturer.CaptureMode.region,
-        imagePath: tempFilePath,
-        copyToClipboard: false,
-        silent: false,
-      );
-
-      // 5. 处理截图结果
-      if (capturedData == null) {
-        _logger.i('Region capture cancelled by user or failed (null data).');
-        return null; // 用户可能取消了选择
-      }
-
-      _logger.d(
-          'screen_capturer.capture finished. Image path: ${capturedData.imagePath}, Bytes length: ${capturedData.imageBytes?.length}');
-
-      Uint8List? imageBytes = capturedData.imageBytes;
-      String imagePath = capturedData.imagePath ?? tempFilePath;
-
-      // 获取物理像素位置和尺寸
-      double physicalX = 0;
-      double physicalY = 0;
-      double physicalWidth = capturedData.imageWidth?.toDouble() ?? 0.0;
-      double physicalHeight = capturedData.imageHeight?.toDouble() ?? 0.0;
-
-      // 计算逻辑矩形 - 将物理像素坐标转换为逻辑坐标
-      Rect? logicalRect;
-      if (physicalWidth > 0 && physicalHeight > 0) {
-        logicalRect = Rect.fromLTWH(
-            physicalX / currentScale,
-            physicalY / currentScale,
-            physicalWidth / currentScale,
-            physicalHeight / currentScale);
-        _logger.d('Calculated logical rect: $logicalRect');
-      }
-
-      // 6. 检查图像数据，如果直接返回的数据为空，尝试从文件读取
-      if (imageBytes == null || imageBytes.isEmpty) {
-        _logger.w(
-            'No direct imageBytes returned for region capture. Attempting to read from file: $imagePath');
-        try {
-          final file = File(imagePath);
-          if (await file.exists()) {
-            imageBytes = await file.readAsBytes();
-            if (imageBytes.isNotEmpty) {
-              _logger
-                  .d('Successfully read ${imageBytes.length} bytes from file.');
-            } else {
-              _logger.e('Region capture file exists but is empty: $imagePath');
-              imageBytes = null;
-            }
-          } else {
-            _logger.e('Region capture file does not exist at path: $imagePath');
-            imageBytes = null;
-          }
-        } catch (fileError) {
-          _logger.e('Error reading region capture file: $imagePath',
-              error: fileError);
-          imageBytes = null;
-        }
-      }
-
-      // 7. 如果最终没有图像数据，则截图失败
-      if (imageBytes == null || imageBytes.isEmpty) {
-        _logger.e('Failed to obtain image data for region capture.');
+      if (capturedData.imageWidth == null || capturedData.imageHeight == null) {
+        _logger.e('Window capture failed to get capture dimensions.');
         return null;
       }
 
-      // 8. 构建并返回 CaptureResult
+      // 计算逻辑Rect - 使用imageWidth和imageHeight
+      final physicalWidth = capturedData.imageWidth!.toDouble();
+      final physicalHeight = capturedData.imageHeight!.toDouble();
+      // 对于窗口截图，我们假设左上角是 (0,0) 因为没有提供rect
+      final logicalRect = Rect.fromLTWH(
+        0,
+        0,
+        physicalWidth / currentScale,
+        physicalHeight / currentScale,
+      );
       _logger.d(
-          'Region capture successful. Image size: ${imageBytes.length} bytes. Scale: $currentScale');
-      return CaptureResult(
+        'Calculated logical Rect: $logicalRect from physical size: ${physicalWidth}x$physicalHeight with scale: $currentScale',
+      );
+
+      final result = CaptureResult(
         imageBytes: imageBytes,
         imagePath: imagePath,
-        region: CaptureRegion(
-          x: 0,
-          y: 0,
-          width: physicalWidth,
-          height: physicalHeight,
-        ),
-        scale: currentScale,
         logicalRect: logicalRect,
+        scale: currentScale,
       );
-    } catch (e, stackTrace) {
-      _logger.e('Error during $modeLabel capture internal process',
-          error: e, stackTrace: stackTrace);
+
+      _logger.i('Window capture successful');
+      return result;
+    } catch (e) {
+      _logger.e('Window capture error', error: e);
       return null;
     } finally {
-      // 9. 恢复窗口
       await _restoreWindowAfterCapture(windowHidden, modeLabel);
     }
-  }
-
-  /// 显示截图预览
-  Future<void> showScreenshotPreviewDialog(
-      BuildContext context, CaptureMode mode) async {
-    _logger.d('Preparing to capture screenshot, mode: $mode');
-
-    // 执行截图 (调用我们的核心 capture 方法)
-    final CaptureResult? result = await capture(mode);
-
-    // 检查 context 是否仍然有效
-    if (!context.mounted) {
-      _logger.w('Context unmounted after capture, cannot navigate to editor.');
-      return;
-    }
-
-    // 检查截图结果
-    if (result == null) {
-      _logger.w(
-          'Capture result is null (failed or cancelled), capture operation aborted.');
-      return;
-    }
-
-    if (result.imageBytes == null || result.imageBytes!.isEmpty) {
-      _logger.w('Capture result has no valid image data.');
-      await _showErrorDialog(
-          context, 'Failed to get valid image data from screenshot.');
-      return;
-    }
-
-    _logger.d(
-        'Capture successful. Image size: ${result.imageBytes!.length} bytes. Navigating to editor.');
-
-    // 直接导航到编辑页面，而不是显示预览
-    _navigateToEditor(context, result);
-  }
-
-  /// 执行截图并导航到编辑器
-  Future<void> captureAndNavigateToEditor(
-      BuildContext context, CaptureMode mode) async {
-    _logger.d('Preparing to capture screenshot, mode: $mode');
-
-    // 执行截图 (调用我们的核心 capture 方法)
-    final CaptureResult? result = await capture(mode);
-
-    // 检查 context 是否仍然有效
-    if (!context.mounted) {
-      _logger.w('Context unmounted after capture, cannot navigate to editor.');
-      return;
-    }
-
-    // 检查截图结果
-    if (result == null) {
-      _logger.w(
-          'Capture result is null (failed or cancelled), capture operation aborted.');
-      return;
-    }
-
-    if (result.imageBytes == null || result.imageBytes!.isEmpty) {
-      _logger.w('Capture result has no valid image data.');
-      await _showErrorDialog(
-          context, 'Failed to get valid image data from screenshot.');
-      return;
-    }
-
-    _logger.d(
-        'Capture successful. Image size: ${result.imageBytes!.length} bytes. Navigating to editor.');
-
-    // 直接导航到编辑页面，而不是显示预览
-    _navigateToEditor(context, result);
-  }
-
-  /// 导航到编辑页面
-  Future<bool> _navigateToEditor(
-    BuildContext context,
-    CaptureResult result,
-  ) async {
-    try {
-      if (!context.mounted) {
-        _logger.e('Context is not mounted. Cannot navigate to editor.');
-        return false;
-      }
-
-      _logger.d(
-          'Navigating to editor with image data of ${result.imageBytes?.length} bytes, scale: ${result.scale}, logicalRect: ${result.logicalRect}');
-
-      final args = {
-        'imageData': result.imageBytes,
-        'imagePath': result.imagePath,
-        'scale': result.scale,
-        'logicalRect': result.logicalRect,
-      };
-
-      Navigator.of(context).pushNamed('/editor', arguments: args);
-      return true;
-    } catch (e, stackTrace) {
-      _logger.e('Failed to navigate to editor',
-          error: e, stackTrace: stackTrace);
-      return false;
-    }
-  }
-
-  /// 显示错误对话框 (保留)
-  Future<void> _showErrorDialog(BuildContext context, String message) async {
-    if (!context.mounted) return; // 检查context有效性
-    return showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('截图错误'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            child: const Text('确定'),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ],
-      ),
-    );
   }
 }

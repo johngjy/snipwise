@@ -1,57 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:math' as math;
 
-import '../states/layout_state.dart';
-import '../states/editor_state.dart';
 import '../providers/editor_providers.dart';
+import '../states/layout_state.dart';
 
-/// 布局管理器Notifier
+/// 布局管理Notifier
 class LayoutNotifier extends Notifier<LayoutState> {
   @override
   LayoutState build() => LayoutState.initial();
 
-  /// 初始化屏幕尺寸
+  /// 初始化布局，设置屏幕尺寸和默认的最小/最大画布尺寸
   void initialize(Size screenSize) {
-    state = state.copyWith(availableScreenSize: screenSize);
-  }
-
-  /// 切换历史面板
-  void toggleHistoryPanel() {
-    state = state.copyWith(isHistoryPanelOpen: !state.isHistoryPanelOpen);
-    _recalculateLayoutBasedOnCurrentContent();
-  }
-
-  /// 更新工具栏高度
-  void updateToolbarHeights({double? top, double? bottom}) {
-    state = state.copyWith(
-      topToolbarHeight: top ?? state.topToolbarHeight,
-      bottomToolbarHeight: bottom ?? state.bottomToolbarHeight,
-    );
-    _recalculateLayoutBasedOnCurrentContent();
-  }
-
-  /// 处理用户手动调整窗口大小
-  void handleManualResize(Size newWindowSize) {
-    state = state.copyWith(
-      editorWindowSize: newWindowSize,
-      userHasManuallyResized: true,
-    );
-
-    // 立即根据新窗口尺寸重新计算画布尺寸
-    final double canvasHeight = newWindowSize.height - state.totalToolbarHeight;
-    final double canvasWidth = newWindowSize.width;
-
-    state = state.copyWith(
-      currentCanvasViewSize: Size(canvasWidth, canvasHeight),
+    state = LayoutState.initial().copyWith(
+      availableScreenSize: screenSize,
     );
   }
 
-  /// 为新内容重新计算布局
-  /// 返回计算出的初始缩放因子
+  /// 重置布局状态为初始值
+  void resetLayout() {
+    state = LayoutState.initial().copyWith(
+      availableScreenSize: state.availableScreenSize,
+    );
+  }
+
+  /// 根据新的内容尺寸和边距重新计算布局（窗口大小、画布大小、初始缩放）
   double recalculateLayoutForNewContent(
       Size originalImageSize, EdgeInsets currentPadding) {
-    if (state.availableScreenSize == null) {
-      // 如果没有屏幕尺寸信息，使用默认值
+    // 如果没有屏幕尺寸，则无法计算布局
+    if (state.maxCanvasSize == null) {
       return 1.0;
     }
 
@@ -105,54 +82,27 @@ class LayoutNotifier extends Notifier<LayoutState> {
     }
 
     // 如果宽度或高度需要缩放，选择较小的缩放因子
-    double initialScaleFactor = 1.0;
-    if (scaleFactorX < 1.0 || scaleFactorY < 1.0) {
-      initialScaleFactor =
-          scaleFactorX < scaleFactorY ? scaleFactorX : scaleFactorY;
-    }
+    double initialScaleFactor = math.min(scaleFactorX, scaleFactorY);
 
-    // 更新当前画布视觉尺寸
-    final Size newCanvasSize = Size(targetCanvasWidth, targetCanvasHeight);
+    // 计算编辑器的窗口尺寸 (画布高度 + UI总高度)
+    final double editorWindowWidth = targetCanvasWidth;
+    final double editorWindowHeight =
+        targetCanvasHeight + state.totalToolbarHeight;
 
-    // 计算窗口尺寸
-    final Size newWindowSize = Size(
-      targetCanvasWidth,
-      targetCanvasHeight + state.totalToolbarHeight,
-    );
-
-    // 更新状态
+    // 更新布局状态
     state = state.copyWith(
-      currentCanvasViewSize: newCanvasSize,
-      editorWindowSize: newWindowSize,
-      userHasManuallyResized: false,
+      editorWindowSize: Size(editorWindowWidth, editorWindowHeight),
+      currentCanvasViewSize: Size(targetCanvasWidth, targetCanvasHeight),
     );
 
+    // 返回计算出的初始缩放因子
     return initialScaleFactor;
   }
 
-  /// 重置布局
-  void resetLayout() {
-    state = LayoutState.initial().copyWith(
-      availableScreenSize: state.availableScreenSize,
-    );
-  }
-
-  /// 根据当前内容重新计算布局 (私有方法)
-  void _recalculateLayoutBasedOnCurrentContent() {
-    final originalImageSize =
-        ref.read(editorStateProvider.select((s) => s.originalImageSize));
-    final wallpaperPadding =
-        ref.read(editorStateProvider.select((s) => s.wallpaperPadding));
-
-    if (originalImageSize == null) return;
-
-    final newScale = recalculateLayoutForNewContent(
-      originalImageSize,
-      wallpaperPadding,
-    );
-
-    if (newScale < 1.0) {
-      ref.read(canvasTransformProvider.notifier).setInitialScale(newScale);
+  /// 更新当前画布视图的大小 (通常在LayoutBuilder中调用)
+  void updateCanvasViewSize(Size newSize) {
+    if (state.currentCanvasViewSize != newSize) {
+      state = state.copyWith(currentCanvasViewSize: newSize);
     }
   }
 }

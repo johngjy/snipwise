@@ -5,10 +5,12 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   clipboard_watcher
   desktop_window
+  file_saver
   file_selector_linux
   isar_flutter_libs
   screen_capturer_linux
   screen_retriever_linux
+  tray_manager
   url_launcher_linux
   window_manager
 )

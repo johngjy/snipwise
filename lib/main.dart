@@ -1,154 +1,77 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart' as provider;
 import 'package:window_manager/window_manager.dart';
-import 'package:flutter/services.dart';
 import 'dart:io' show Platform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'app/routes/app_routes.dart';
-import 'app/routes/app_router.dart';
-import 'core/services/clipboard_service.dart';
-import 'core/services/window_service.dart';
-import 'features/capture/services/capture_service.dart';
-import 'features/capture/presentation/providers/capture_mode_provider.dart';
-import 'features/hires_capture/presentation/providers/hires_capture_provider.dart';
-import 'package:logger/logger.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'core/services/status_bar_service.dart';
+import 'core/main_app.dart';
+import 'core/routes/app_routes.dart';
 
+/// 应用程序主入口点
 void main() async {
   // 确保Flutter绑定初始化
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 初始化窗口管理
-  if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
-    await windowManager.ensureInitialized();
+  // 初始化窗口管理器
+  await windowManager.ensureInitialized();
 
-    // 设置窗口属性
-    const windowOptions = WindowOptions(
-      size: Size(700, 180), // 稍小的初始大小，稍后会根据工具栏宽度调整
+  // 配置窗口属性
+  await windowManager.waitUntilReadyToShow(
+    const WindowOptions(
+      size: Size(800, 600),
       center: true,
       backgroundColor: Colors.transparent,
       skipTaskbar: false,
-      titleBarStyle: TitleBarStyle.hidden, // 隐藏标题栏
-      title: 'Snipwise',
-      minimumSize: Size(400, 180), // 设置较小的最小尺寸，以适应不同工具栏宽度
-      fullScreen: false,
-      windowButtonVisibility: true, // 确保窗口按钮可见
-    );
-
-    await windowManager.waitUntilReadyToShow(windowOptions, () async {
+      titleBarStyle: TitleBarStyle.hidden,
+    ),
+    () async {
+      // 窗口准备好显示后的操作
       await windowManager.show();
       await windowManager.focus();
-      await windowManager.setAlignment(Alignment.center);
 
-      // 初始化我们的窗口服务 (包含了窗口监听器)
-      await WindowService.instance.initialize();
-    });
-  }
+      // 在macOS上初始化状态栏服务
+      if (Platform.isMacOS) {
+        await _initializeStatusBar();
+      }
+    },
+  );
 
-  // 初始化服务
-  initServices();
-
-  // 设置系统UI覆盖样式
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
-    systemNavigationBarColor: Colors.white,
-    systemNavigationBarIconBrightness: Brightness.dark,
-  ));
-
-  // 运行App
-  runApp(const ProviderScope(child: MyApp()));
+  // 运行应用
+  runApp(
+    const ProviderScope(
+      child: MainApp(),
+    ),
+  );
 }
 
-/// 初始化各种服务
-void initServices() {
-  // 初始化剪贴板服务
-  ClipboardService.instance;
-  // 确保窗口服务已初始化（这是一个额外的检查）
-  WindowService.instance;
-}
-
-/// 处理APP退出清理工作
-void handleAppExit() {
-  // 清理剪贴板服务资源
-  ClipboardService.instance.dispose();
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return provider.MultiProvider(
-      providers: [
-        provider.ChangeNotifierProvider(create: (_) => CaptureModeProvider()),
-        provider.ChangeNotifierProvider(create: (_) => HiResCapureProvider()),
-      ],
-      child: MaterialApp(
-        title: 'Snipwise',
-        debugShowCheckedModeBanner: false,
-        navigatorKey: CaptureService.instance.navigatorKey,
-        builder: (context, child) {
-          return Overlay(
-            initialEntries: [
-              OverlayEntry(
-                builder: (context) => child ?? const SizedBox(),
-              ),
-            ],
-          );
-        },
-        theme: ThemeData(
-          fontFamily: 'Roboto',
-          textTheme: GoogleFonts.robotoTextTheme(Theme.of(context).textTheme),
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-          useMaterial3: true,
-          scaffoldBackgroundColor: Colors.transparent,
-          dialogTheme: const DialogTheme(backgroundColor: Colors.white),
-          appBarTheme: const AppBarTheme(
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black,
-            elevation: 0.5,
-          ),
-        ),
-        darkTheme: ThemeData(
-          fontFamily: 'Roboto',
-          textTheme:
-              GoogleFonts.robotoTextTheme(Theme.of(context).textTheme.copyWith(
-                    bodyLarge: GoogleFonts.roboto(fontSize: 18),
-                    bodyMedium: GoogleFonts.roboto(fontSize: 18),
-                  )),
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.blue,
-            brightness: Brightness.dark,
-          ),
-          scaffoldBackgroundColor: Colors.transparent,
-          dialogTheme: DialogTheme(backgroundColor: Colors.grey[850]),
-          useMaterial3: true,
-        ),
-        themeMode: ThemeMode.system,
-        onGenerateRoute: AppRouter.generateRoute,
-        initialRoute: AppRoutes.capture,
-        navigatorObservers: [_NavigatorObserver()],
-      ),
-    );
+Future<void> _initializeStatusBar() async {
+  try {
+    // 注意：我们不再调用Flutter端的状态栏服务初始化方法
+    // 因为我们已经在原生Swift代码中实现了状态栏功能
+    // 这里只是为了保持代码结构的完整性
+    
+    print('状态栏由原生代码处理，Flutter端不再初始化');
+    
+    // 如果将来需要在Flutter端处理状态栏点击事件，可以取消下面的注释
+    /*
+    final statusBarService = StatusBarService.instance;
+    statusBarService.onStatusBarItemClicked = () async {
+      // 当状态栏图标被点击时的处理逻辑
+      print('状态栏图标被点击');
+    };
+    */
+  } catch (e) {
+    print('状态栏处理出错: $e');
   }
 }
 
-/// 导航观察器，用于监控页面导航情况
-class _NavigatorObserver extends NavigatorObserver {
-  final _logger = Logger();
+/// 显示状态栏选项
+void _showStatusBarOptions(StatusBarService statusBarService) {
+  // 这里可以添加原生菜单项的实现
+  // 目前使用日志模拟
+  print('状态栏菜单选项：');
+  print('1. 主页');
+  print('2. 缓存文本示例');
 
-  @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    super.didPush(route, previousRoute);
-    _logger.d(
-        '路由推入: ${route.settings.name} (前一个路由: ${previousRoute?.settings.name})');
-  }
-
-  @override
-  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    super.didPop(route, previousRoute);
-    _logger.d(
-        '路由弹出: ${route.settings.name} (回到路由: ${previousRoute?.settings.name})');
-  }
+  // 在实际应用中，这里可以通过原生方法调用添加菜单项
+  // 当用户点击这些菜单项时，原生代码会通过statusItemClicked方法通知Flutter
 }
