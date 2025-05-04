@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../states/canvas_transform_state.dart';
+import '../states/canvas_transform_state.dart' as cts;
 import '../states/tool_state.dart';
+import '../notifiers/canvas_transform_notifier.dart';
 import 'editor_providers.dart';
 
 /// 是否显示滚动条
@@ -10,7 +11,7 @@ final showScrollbarsProvider = Provider<bool>((ref) {
   final transformState = ref.watch(canvasTransformProvider);
   final layoutState = ref.watch(layoutProvider);
 
-  return transformState.scaleFactor > CanvasTransformState.minZoom ||
+  return transformState.scaleFactor > cts.CanvasTransformState.minZoom ||
       layoutState.editorWindowSize.width <
           layoutState.currentCanvasViewSize.width ||
       layoutState.editorWindowSize.height <

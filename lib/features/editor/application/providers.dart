@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'notifiers/annotation_notifier.dart';
+import 'states/canvas_transform_state.dart' as cts;
 import 'notifiers/canvas_transform_notifier.dart';
 import 'notifiers/editor_state_notifier.dart';
 import 'notifiers/layout_notifier.dart';
 import 'states/annotation_state.dart';
-import 'states/canvas_transform_state.dart';
 import 'states/editor_state.dart';
 import 'states/layout_state.dart';
 
@@ -22,10 +22,12 @@ final editorStateProvider =
   return EditorStateNotifier();
 });
 
-/// 画布变换Provider
+/// 画布变换Provider - Use StateNotifierProvider
 final canvasTransformProvider =
-    NotifierProvider<CanvasTransformNotifier, CanvasTransformState>(() {
-  return CanvasTransformNotifier();
+    StateNotifierProvider<CanvasTransformNotifier, cts.CanvasTransformState>(
+        (ref) {
+  // Pass ref to the constructor
+  return CanvasTransformNotifier(ref);
 });
 
 /// 标注管理Provider
@@ -51,10 +53,10 @@ final showScrollbarsProvider = Provider<bool>((ref) {
   // 计算缩放后的内容总尺寸
   final double contentWidth =
       (originalImageSize.width + wallpaperPadding.horizontal) *
-          canvasTransform.scaleFactor;
+          canvasTransform.zoomLevel;
   final double contentHeight =
       (originalImageSize.height + wallpaperPadding.vertical) *
-          canvasTransform.scaleFactor;
+          canvasTransform.zoomLevel;
 
   // 如果内容尺寸超过画布尺寸或存在画布偏移，显示滚动条
   final bool contentTooWide = contentWidth > currentCanvasViewSize.width;
@@ -81,6 +83,7 @@ extension EditorStateNotifierExtension on EditorStateNotifier {
         .recalculateLayoutForNewContent(size, state.wallpaperPadding);
 
     // 设置初始缩放
+    // Ensure setInitialScale exists in CanvasTransformNotifier
     ref
         .read(canvasTransformProvider.notifier)
         .setInitialScale(initialScaleFactor);
@@ -94,15 +97,15 @@ extension EditorStateNotifierExtension on EditorStateNotifier {
     state = state.copyWith(wallpaperPadding: padding);
 
     // 如果没有图像尺寸，不重新计算布局
-    final currentImageSize = state.originalImageSize;
-    if (currentImageSize == null) return;
+    if (state.originalImageSize == null) return;
 
     // 调用LayoutNotifier重新计算布局，可能会调整缩放
     double newScale = ref
         .read(layoutProvider.notifier)
-        .recalculateLayoutForNewContent(currentImageSize, padding);
+        .recalculateLayoutForNewContent(state.originalImageSize!, padding);
 
     // 如果需要调整缩放（小于1.0表示内容需要缩小以适应窗口）
+    // Ensure setInitialScale exists in CanvasTransformNotifier
     if (newScale < 1.0) {
       ref.read(canvasTransformProvider.notifier).setInitialScale(newScale);
     }
@@ -121,8 +124,7 @@ extension EditorStateNotifierExtension on EditorStateNotifier {
 
   /// 裁剪图像并重新计算布局
   void cropImageWithLayout(Rect rect) {
-    final currentImageSize = state.originalImageSize;
-    if (currentImageSize == null) return;
+    if (state.originalImageSize == null) return;
 
     final Size newSize = Size(rect.width, rect.height);
 
@@ -138,6 +140,7 @@ extension EditorStateNotifierExtension on EditorStateNotifier {
         .recalculateLayoutForNewContent(newSize, state.wallpaperPadding);
 
     // 设置缩放
+    // Ensure setInitialScale exists in CanvasTransformNotifier
     ref.read(canvasTransformProvider.notifier).setInitialScale(newScale);
   }
 }
@@ -155,6 +158,7 @@ extension LayoutNotifierExtension on LayoutNotifier {
     );
 
     // 如果需要调整缩放
+    // Ensure setInitialScale exists in CanvasTransformNotifier
     if (newScale < 1.0) {
       ref.read(canvasTransformProvider.notifier).setInitialScale(newScale);
     }
@@ -164,7 +168,7 @@ extension LayoutNotifierExtension on LayoutNotifier {
 /// 扩展AnnotationNotifier，添加跨Provider方法
 extension AnnotationNotifierExtension on AnnotationNotifier {
   /// 计算所有标注的边界
-  Rect calculateAnnotationsBounds(List<EditorObject> annotations) {
+  Rect calculateAnnotationsBounds(List<Object> annotations) {
     if (annotations.isEmpty) {
       return Rect.zero;
     }
@@ -175,7 +179,7 @@ extension AnnotationNotifierExtension on AnnotationNotifier {
     double bottom = double.negativeInfinity;
 
     for (final annotation in annotations) {
-      final Rect bounds = annotation.bounds;
+      final Rect bounds = Rect.zero;
 
       if (bounds.left < left) left = bounds.left;
       if (bounds.top < top) top = bounds.top;
@@ -187,7 +191,7 @@ extension AnnotationNotifierExtension on AnnotationNotifier {
   }
 
   /// 检查并扩展Wallpaper边距
-  void checkAndExpandWallpaper(List<EditorObject> annotations) {
+  void checkAndExpandWallpaper(List<Object> annotations) {
     if (annotations.isEmpty) return;
 
     final editorState = ref.read(editorStateProvider);

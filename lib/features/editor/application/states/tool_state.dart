@@ -11,7 +11,8 @@ enum EditorTool {
   text, // 文本
   blur, // 模糊
   highlight, // 高亮
-  freehand, // 手绘
+  freehand, // 手绘 (Renamed from freestyle for clarity)
+  erase, // Add Erase tool
   crop, // 裁剪
   magnifier, // 放大镜
   dimension, // 尺寸标注

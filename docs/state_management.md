@@ -1,202 +1,263 @@
-# Snipwise 状态管理 - Riverpod实现
+# Snipwise 状态管理文档
 
-本文档描述了Snipwise截图应用使用Riverpod v2的状态管理实现，该实现遵循了最佳实践，特别是使用NotifierProvider和不可变状态模式。
+本文档详细说明 Snipwise 应用的状态管理架构，特别是编辑器模块的状态管理。
 
-## 状态类设计
+## 状态管理概览
 
-### LayoutState (布局状态)
+Snipwise 使用 Flutter Riverpod 作为状态管理解决方案，采用分层架构设计，主要包括：
 
-管理窗口和画布的尺寸相关状态：
+- **状态定义层**：定义状态数据结构和模型
+- **状态更新层**：通过 Notifier 类实现状态更新逻辑
+- **状态提供层**：使用 Provider 提供状态访问接口
+- **状态协调层**：核心状态管理器协调复杂状态间的交互
+- **业务功能层**：通过 Manager 类实现跨状态的业务功能
 
-- `availableScreenSize`: 可用屏幕尺寸
-- `minCanvasSize`: 最小画布尺寸
-- `editorWindowSize`: 编辑器窗口尺寸
-- `currentCanvasViewSize`: 当前画布视觉尺寸
-- `isHistoryPanelOpen`: 历史面板是否打开
-- `topToolbarHeight`/`bottomToolbarHeight`: 工具栏高度
-- `userHasManuallyResized`: 用户是否手动调整过窗口大小
+## 编辑器模块状态架构
 
-派生值:
-- `totalToolbarHeight`: 工具栏总高度
-- `minWindowBaseSize`: 最小窗口基础尺寸
-- `maxCanvasSize`: 最大画布尺寸 (屏幕尺寸-20-工具栏高度)
+### 1. 核心状态管理器 (EditorStateCore)
 
-### EditorState (编辑器状态)
-
-管理编辑器的核心状态：
-
-- `originalImageSize`: 原始截图尺寸
-- `currentImageData`: 当前图像数据
-- `wallpaperColor`: 背景颜色
-- `wallpaperPadding`: 背景边距
-- `isLoading`: 加载状态
-- `isWallpaperEnabled`: 是否启用背景
-
-### CanvasTransformState (画布变换状态)
-
-管理画布的变换：
-
-- `scaleFactor`: 缩放比例
-- `canvasOffset`: 画布偏移量
-
-### AnnotationState (标注状态)
-
-管理标注数据：
-
-- `annotations`: 标注列表
-- `selectedAnnotationId`: 当前选中的标注ID
-- `currentTool`: 当前使用的工具
-
-## Notifier类设计
-
-### LayoutNotifier
-
-负责布局计算和窗口尺寸调整：
-
-- `initialize(screenSize)`: 初始化屏幕尺寸信息
-- `toggleHistoryPanel()`: 切换历史面板
-- `updateToolbarHeights()`: 更新工具栏高度
-- `handleManualResize(newWindowSize)`: 处理用户手动调整窗口大小
-- `recalculateLayoutForNewContent(originalImageSize, currentPadding)`: 核心方法，为新内容重新计算布局
-- `resetLayout()`: 重置布局为初始状态
-
-### EditorStateNotifier
-
-管理编辑器的核心状态：
-
-- `loadScreenshot(data, size)`: 加载截图数据
-- `cropImage(rect)`: 裁剪图像
-- `updateWallpaperColor(color)`: 更新背景颜色
-- `updateWallpaperPadding(padding)`: 更新背景边距
-- `resetEditorState()`: 重置编辑器状态
-
-### CanvasTransformNotifier
-
-管理画布的变换操作：
-
-- `setInitialScale(scale)`: 设置初始缩放比例
-- `updateZoom(newScale, focalPoint)`: 更新缩放比例，focalPoint是缩放中心
-- `updateOffset(delta)`: 更新偏移量
-- `resetTransform()`: 重置变换
-- `fitToWindow(imageSize, availableSize)`: 适应窗口
-
-### AnnotationNotifier
-
-管理标注数据：
-
-- `addAnnotation(annotation)`: 添加标注
-- `updateAnnotation(updatedAnnotation)`: 更新标注
-- `removeAnnotation(id)`: 移除标注
-- `selectAnnotation(id)`: 选择标注
-- `setCurrentTool(tool)`: 设置当前工具
-- `clearAnnotations()`: 清除所有标注
-
-## Provider设计
+`EditorStateCore` 是编辑器状态的核心协调者，位于 `lib/features/editor/application/core/editor_state_core.dart`。
 
 ```dart
-// 布局管理Provider
-final layoutProvider = NotifierProvider<LayoutNotifier, LayoutState>(() {
-  return LayoutNotifier();
+/// 编辑器核心状态管理器
+/// 提供统一的状态访问和更新接口，协调所有子状态间的交互
+class EditorStateCore {
+  final Ref _ref;
+
+  EditorStateCore(this._ref);
+
+  // 状态访问接口
+  EditorState get editorState => _ref.read(editorStateProvider);
+  CanvasTransformState get canvasTransform => _ref.read(canvasTransformProvider);
+  // ...
+
+  // 高级操作接口
+  double loadScreenshot(Uint8List data, Size size, {double capturedScale = 1.0}) {
+    // 协调多个状态的更新逻辑
+  }
+
+  void updateWallpaperPadding(double padding) {
+    // 统一处理内边距更新
+  }
+
+  // ...更多跨状态操作
+}
+```
+
+#### 核心原则：
+
+1. **单一入口**：为复杂操作提供单一API入口
+2. **状态协调**：负责跨状态的协调和同步
+3. **功能聚合**：将业务逻辑从UI和Notifier中抽离
+
+### 2. 分类状态提供者
+
+状态提供者按功能域分类组织，每类状态都有专门的提供者文件：
+
+#### 2.1 核心Provider (Core Providers)
+
+位于 `lib/features/editor/application/providers/core_providers.dart`，管理基础状态：
+
+```dart
+/// 编辑器核心状态提供者
+final editorStateCoreProvider = Provider<EditorStateCore>((ref) {
+  return EditorStateCore(ref);
 });
 
-// 编辑器状态Provider
+/// 编辑器基础状态提供者
 final editorStateProvider = NotifierProvider<EditorStateNotifier, EditorState>(() {
   return EditorStateNotifier();
 });
 
-// 画布变换Provider
-final canvasTransformProvider = NotifierProvider<CanvasTransformNotifier, CanvasTransformState>(() {
-  return CanvasTransformNotifier();
+/// 布局管理提供者
+final layoutProvider = NotifierProvider<LayoutNotifier, LayoutState>(() {
+  return LayoutNotifier();
 });
 
-// 标注管理Provider
-final annotationProvider = NotifierProvider<AnnotationNotifier, AnnotationState>(() {
-  return AnnotationNotifier();
-});
-
-// 滚动条显示Provider
-final showScrollbarsProvider = Provider<bool>((ref) {
-  // 根据画布状态、图像尺寸、背景边距和画布尺寸计算是否需要显示滚动条
-  // ...
-});
+// ...其他核心状态
 ```
 
-## 跨Provider通信
+#### 2.2 画布Provider (Canvas Providers)
 
-通过扩展方法实现跨Provider通信，避免循环依赖：
+位于 `lib/features/editor/application/providers/canvas_providers.dart`，管理画布相关状态：
 
 ```dart
-// 扩展EditorStateNotifier，添加跨Provider方法
-extension EditorStateNotifierExtension on EditorStateNotifier {
-  // 加载截图并计算布局
-  double loadScreenshotWithLayout(dynamic data, Size size) { ... }
-  
-  // 更新背景边距并重新计算布局
-  void updateWallpaperPaddingWithLayout(EdgeInsets padding) { ... }
-  
-  // 重置所有状态
-  void resetAllState() { ... }
-}
+/// 画布尺寸提供者
+final canvasSizeProvider = Provider<Size>((ref) {
+  final editorState = ref.watch(editorStateProvider);
+  return editorState.originalImageSize ?? const Size(800, 600);
+});
 
-// 扩展LayoutNotifier，添加跨Provider方法
-extension LayoutNotifierExtension on LayoutNotifier {
-  // 根据当前内容重新计算布局
-  void recalculateLayoutBasedOnCurrentContent() { ... }
-}
+/// 画布缩放比例提供者
+final canvasScaleProvider = StateProvider<double>((ref) {
+  final transformState = ref.watch(canvasTransformProvider);
+  return transformState.zoomLevel;
+});
 
-// 扩展AnnotationNotifier，添加跨Provider方法
-extension AnnotationNotifierExtension on AnnotationNotifier {
-  // 检查并扩展Wallpaper边距
-  void checkAndExpandWallpaper(List<EditorObject> annotations) { ... }
+// ...其他画布状态
+```
+
+#### 2.3 壁纸Provider (Wallpaper Providers)
+
+位于 `lib/features/editor/application/providers/wallpaper_providers.dart`，管理背景装饰相关状态：
+
+```dart
+/// 画布背景装饰提供者
+final canvasBackgroundDecorationProvider = Provider<BoxDecoration?>((ref) {
+  final wallpaperSettings = ref.watch(wallpaperSettingsProvider);
+  // 构建装饰对象...
+});
+
+// ...其他壁纸状态
+```
+
+#### 2.4 绘图Provider (Painter Providers)
+
+位于 `lib/features/editor/application/providers/painter_providers.dart`，管理绘图和标注相关状态：
+
+```dart
+/// FlutterPainter控制器提供者
+final painterControllerProvider = StateProvider<PainterController>((ref) {
+  final controller = PainterController();
+  return controller;
+});
+
+/// 绘图模式提供者
+final drawingModeProvider = StateProvider<DrawingMode>((ref) {
+  return DrawingMode.line;
+});
+
+// ...其他绘图状态
+```
+
+### 3. 管理器 (Managers)
+
+管理器层负责实现业务功能逻辑，减少状态间的直接依赖：
+
+#### 3.1 画布管理器 (CanvasManager)
+
+位于 `lib/features/editor/application/managers/canvas_manager.dart`：
+
+```dart
+/// 画布管理器类
+/// 提供高级画布管理功能，统一多个Provider间的协调
+class CanvasManager {
+  final Ref _ref;
+  final Logger _logger = Logger();
+
+  CanvasManager(this._ref);
+
+  /// 计算内容适合窗口的缩放因子
+  double calculateContentFitScale(Size contentSize, Size availableArea) {
+    // 缩放计算逻辑...
+  }
+
+  /// 调整画布以适应绘制物对象边界
+  void adjustCanvasForDrawableBounds(Rect bounds) {
+    // 画布调整逻辑...
+  }
+
+  // ...其他画布管理功能
 }
 ```
 
-## 窗口尺寸计算逻辑
+## 状态更新流程
 
-1. 当加载新截图时，LayoutNotifier会根据截图尺寸和当前设置重新计算布局：
-   - 如果内容尺寸小于最小画布尺寸，则使用最小画布尺寸
-   - 如果内容尺寸介于最小和最大画布尺寸之间，则使用内容尺寸
-   - 如果内容尺寸大于最大画布尺寸，则使用最大画布尺寸，并计算需要的缩放因子
+### 1. 基本状态更新
 
-2. 缩放因子计算：
-   - 如果内容宽度或高度超过最大尺寸限制，则计算`scaleFactorX`或`scaleFactorY`
-   - 选择较小的缩放因子作为最终缩放因子，确保内容完全可见
+最简单的状态更新直接通过Notifier执行：
 
-## Wallpaper自动扩展逻辑
+```dart
+// UI组件中
+ref.read(toolProvider.notifier).selectTool(EditorTool.rectangle);
+```
 
-当添加或修改标注时，系统会检查标注是否超出当前Wallpaper边距区域。如果超出，则会自动扩展边距以容纳标注：
+### 2. 跨状态协调更新
 
-1. 计算所有标注的边界
-2. 比较边界与当前图像+边距的区域
-3. 如果标注超出了边界，则增加相应方向的边距
-4. 更新边距，这会触发布局重新计算和可能的缩放调整
+需要协调多个状态的更新通过EditorStateCore执行：
 
-## 滚动条显示逻辑
+```dart
+// UI组件中
+final editorCore = ref.read(editorStateCoreProvider);
+editorCore.updateWallpaperPadding(10.0); // 内部会协调多个状态的更新
+```
 
-`showScrollbarsProvider`根据以下条件决定是否显示滚动条：
+### 3. 业务功能更新
 
-1. 如果缩放后的内容宽度大于当前画布视觉宽度，显示水平滚动条
-2. 如果缩放后的内容高度大于当前画布视觉高度，显示垂直滚动条
-3. 如果存在画布偏移（即用户已经平移了画布），显示滚动条
+特定业务功能通过Manager类执行：
 
-## 用户手动调整窗口
+```dart
+// UI组件中
+final canvasManager = ref.read(canvasManagerProvider);
+canvasManager.fitContentToViewport(availableSize); // 执行适应视口的业务逻辑
+```
 
-当用户手动调整窗口大小时：
+## 状态监听与反应
 
-1. 窗口检测到调整事件，调用`handleManualResize`
-2. 更新`editorWindowSize`并设置`userHasManuallyResized = true`
-3. 立即重新计算画布视觉尺寸，但不会触发内容的自动缩放
-4. 如果内容超出了可视区域，自动启用滚动条
+Riverpod提供强大的状态监听机制：
 
-## 状态依赖关系
+```dart
+// 监听特定状态变化
+ref.listen(editorStateProvider, (previous, current) {
+  if (previous?.currentImageData != current.currentImageData) {
+    // 图像数据变化时执行的逻辑
+  }
+});
 
-1. `EditorState` → `LayoutState`: 图像尺寸和边距影响布局计算
-2. `LayoutState` → `CanvasTransformState`: 布局变化可能需要调整缩放
-3. `AnnotationState` → `EditorState`: 标注边界影响Wallpaper边距
+// 派生状态 (Computed State)
+final canvasOverflowProvider = Provider<bool>((ref) {
+  final transformState = ref.watch(canvasTransformProvider);
+  final layoutState = ref.watch(layoutProvider);
+  final canvasSize = ref.watch(canvasTotalSizeProvider);
+  
+  // 基于多个状态计算派生状态
+  final isScaledUp = transformState.zoomLevel > 1.0;
+  final isWidthOverflow = canvasSize.width * transformState.zoomLevel > layoutState.currentCanvasViewSize.width;
+  final isHeightOverflow = canvasSize.height * transformState.zoomLevel > layoutState.currentCanvasViewSize.height;
+  
+  return isScaledUp || isWidthOverflow || isHeightOverflow;
+});
+```
 
-## 优化策略
+## 状态重置与初始化
 
-1. 状态分离：将不同关注点的状态分离到不同的Provider中
-2. 精细依赖：UI组件仅订阅所需的状态部分，使用`select`优化性能
-3. 延迟计算：使用延迟计算派生值，避免不必要的重新计算
-4. 扩展方法：使用扩展方法实现跨Provider通信，避免循环依赖 
+各状态提供统一的重置方法：
+
+```dart
+// 重置所有状态
+void resetAllState() {
+  // 重置编辑器状态
+  _ref.read(editorStateProvider.notifier).resetEditorState();
+  
+  // 重置布局
+  _ref.read(layoutProvider.notifier).resetLayout();
+  
+  // 重置变换
+  _ref.read(canvasTransformProvider.notifier).resetTransform();
+  
+  // ...重置其他状态
+}
+```
+
+## 最佳实践
+
+1. **状态分类**：按功能域组织状态提供者
+2. **最小状态原则**：每个状态只存储必要的数据
+3. **单一职责**：每个 Notifier 只负责一种状态的更新
+4. **协调分离**：复杂状态协调逻辑放在 EditorStateCore 或 Manager 中
+5. **派生状态**：尽量使用 Provider 计算派生状态，避免冗余存储
+6. **状态文档**：为每个状态和重要操作添加详细注释说明
+
+## 性能优化
+
+1. **选择性监听**：UI组件只监听真正需要的状态
+2. **延迟计算**：使用 Provider.family 和参数化 Provider 延迟计算
+3. **保持状态轻量**：避免在状态中存储大量数据或复杂对象
+4. **缓存结果**：对计算密集型操作结果进行缓存
+
+## 调试与测试
+
+1. **日志记录**：关键状态变化添加日志
+2. **状态快照**：实现状态快照功能便于调试
+3. **单元测试**：为 Notifier 和 Manager 编写单元测试
+4. **模拟依赖**：使用 Riverpod 的 ProviderContainer 模拟依赖 

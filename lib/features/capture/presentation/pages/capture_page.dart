@@ -3,6 +3,9 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,13 +15,16 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:screen_capturer/screen_capturer.dart' hide CaptureMode;
 import 'package:screen_retriever/screen_retriever.dart';
 
-import '../../../../core/services/window_service.dart';
-import '../../../../core/widgets/standard_app_bar.dart';
-import '../providers/capture_mode_provider.dart';
-import '../../data/models/capture_mode.dart';
-import '../../data/models/capture_result.dart';
-import '../../services/capture_service.dart';
-import '../../services/long_screenshot_service.dart';
+import '../../../../core/routes/app_routes.dart';
+import '../../../../features/new_editor/routes.dart';
+import '../../../common/infrastructure/services/window_service.dart';
+import '../../../common/presentation/widgets/standard_app_bar.dart';
+import '../../../editor/application/providers/editor_providers.dart';
+import '../../../screenshot/application/providers/capture_mode_provider.dart';
+import '../../../screenshot/domain/entities/capture_mode.dart';
+import '../../../screenshot/domain/entities/capture_result.dart';
+import '../../../screenshot/infrastructure/services/capture_service.dart';
+import '../../../screenshot/infrastructure/services/long_screenshot_service.dart';
 import '../widgets/delay_menu.dart';
 import '../widgets/video_menu.dart';
 
@@ -36,7 +42,8 @@ class CapturePage extends ConsumerStatefulWidget {
   ConsumerState<CapturePage> createState() => _CapturePageState();
 }
 
-class _CapturePageState extends ConsumerState<CapturePage> {
+class _CapturePageState extends ConsumerState<CapturePage>
+    with SingleTickerProviderStateMixin {
   /// 是否正在加载截图
   bool _isLoadingCapture = false;
 
@@ -141,6 +148,13 @@ class _CapturePageState extends ConsumerState<CapturePage> {
         label: 'Full Screen',
         shortcut: Platform.isMacOS ? '⌘4' : 'Ctrl+4',
         onTap: () => _triggerCapture(CaptureMode.fullscreen),
+      ),
+
+      // 新版编辑器
+      MenuItemConfig(
+        icon: PhosphorIcons.sparkle(PhosphorIconsStyle.light),
+        label: '新版编辑器',
+        onTap: _openNewEditor,
       ),
 
       // 视频录制
@@ -745,6 +759,61 @@ class _CapturePageState extends ConsumerState<CapturePage> {
             content: Text('长截图失败: $e'),
             duration: const Duration(seconds: 5),
           ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingCapture = false;
+        });
+      }
+    }
+  }
+
+  /// 打开新版编辑器
+  Future<void> _openNewEditor() async {
+    _logger.i('New editor action triggered.');
+
+    if (_isLoadingCapture || !mounted) {
+      _logger.w('当前已有截图任务进行中或组件未挂载，无法打开新编辑器');
+      return;
+    }
+
+    try {
+      setState(() {
+        _isLoadingCapture = true;
+      });
+
+      // 获取屏幕截图
+      final result = await CaptureService.instance.capture(
+        CaptureMode.fullscreen,
+      );
+
+      if (!mounted) return;
+
+      if (result != null && result.hasData) {
+        _logger.i('获取截图成功，导航至新版编辑器...');
+
+        // 使用GoRouter导航到新版编辑器
+        context.push(
+          '/new-editor',
+          extra: {
+            'imageData': result.imageBytes,
+            'imageSize': result.logicalRect?.size,
+            'scale': result.scale,
+          },
+        );
+      } else {
+        _logger.w('获取截图失败或被取消');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('获取截图失败，无法打开编辑器')),
+        );
+      }
+    } catch (e, stackTrace) {
+      _logger.e('打开新版编辑器过程中发生错误', error: e, stackTrace: stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('打开新版编辑器失败: $e')),
         );
       }
     } finally {

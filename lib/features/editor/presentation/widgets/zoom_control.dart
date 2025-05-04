@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
-/// 缩放控制组件
+/// 集成缩放控制组件
 ///
-/// 用于编辑器中的缩放控制
+/// 包含缩放滑块和缩放菜单功能，统一管理缩放交互
 class ZoomControl extends StatelessWidget {
   /// 当前缩放比例
   final double zoomLevel;
@@ -32,6 +32,9 @@ class ZoomControl extends StatelessWidget {
   /// 是否显示缩放值的文本
   final bool showZoomText;
 
+  /// 适合窗口的缩放级别
+  final double fitZoomLevel;
+
   const ZoomControl({
     super.key,
     required this.zoomLevel,
@@ -40,6 +43,7 @@ class ZoomControl extends StatelessWidget {
     required this.onZoomChanged,
     required this.onZoomMenuTap,
     required this.zoomLayerLink,
+    required this.fitZoomLevel,
     this.buttonKey,
     this.buttonSize = 30.0,
     this.showZoomText = true,
@@ -123,6 +127,91 @@ class ZoomControl extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 缩放菜单组件
+///
+/// 显示在缩放控件上方的下拉菜单，提供预设缩放级别选择
+class ZoomMenu extends StatelessWidget {
+  /// 缩放选项列表
+  final List<String> zoomOptions;
+
+  /// 当前缩放级别
+  final double currentZoom;
+
+  /// 选项选择回调
+  final Function(String) onOptionSelected;
+
+  /// 适合窗口的缩放级别
+  final double fitZoomLevel;
+
+  const ZoomMenu({
+    super.key,
+    required this.zoomOptions,
+    required this.currentZoom,
+    required this.onOptionSelected,
+    required this.fitZoomLevel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha((0.1 * 255).round()),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFEEEEEE)),
+      ),
+      width: 120,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: zoomOptions.map((option) {
+          // 确定当前是否选中
+          final bool isSelected = option == '${(currentZoom * 100).toInt()}%' ||
+              (option == 'Fit window' && currentZoom == fitZoomLevel);
+
+          return InkWell(
+            onTap: () => onOptionSelected(option),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color:
+                    isSelected ? const Color(0xFFF5F5F5) : Colors.transparent,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isSelected
+                        ? PhosphorIcons.check(PhosphorIconsStyle.fill)
+                        : PhosphorIcons.checkCircle(PhosphorIconsStyle.light),
+                    size: 14,
+                    color: isSelected ? Colors.blue : Colors.grey[600],
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    option,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isSelected ? Colors.blue : Colors.grey[800],
+                      fontWeight:
+                          isSelected ? FontWeight.w500 : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 }

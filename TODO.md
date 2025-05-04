@@ -1,0 +1,1 @@
+需要查看flutter_painter_v2包的API文档，了解正确的ShapeSettings设置方法

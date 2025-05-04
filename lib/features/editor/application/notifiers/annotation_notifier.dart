@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import '../providers/editor_providers.dart';
 import '../states/annotation_state.dart';
 import '../states/tool_state.dart';
+import '../providers/painter_providers.dart';
 
 /// 矩形标注对象
 class RectangleAnnotation implements EditorObject {

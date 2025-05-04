@@ -1,8 +1,13 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logger/logger.dart';
 
 import '../providers/editor_providers.dart';
 import '../states/editor_state.dart';
+import '../notifiers/canvas_transform_notifier.dart'
+    show canvasTransformProvider;
+import '../helpers/canvas_transform_connector.dart';
 
 /// 编辑器状态管理Notifier
 class EditorStateNotifier extends Notifier<EditorState> {
@@ -11,11 +16,44 @@ class EditorStateNotifier extends Notifier<EditorState> {
 
   /// 加载截图数据 (仅更新状态)
   void loadScreenshot(dynamic data, Size size) {
+    final logger = Logger();
+    logger.d(
+        'EditorStateNotifier.loadScreenshot 被调用: 图像大小=${size.width}x${size.height}, 数据=${data != null ? "非空" : "空"}');
+    if (data != null) {
+      try {
+        logger.d('接收到图像数据长度: ${data.length}');
+      } catch (e) {
+        logger.w('无法获取图像数据长度: $e');
+      }
+    }
+
     state = state.copyWith(
       currentImageData: data,
       originalImageSize: size,
       isLoading: false,
     );
+
+    logger.d('EditorStateNotifier.loadScreenshot 完成: 状态已更新');
+  }
+
+  /// 设置UI图像
+  void setUiImage(ui.Image image) {
+    state = state.copyWith(imageAsUiImage: image);
+  }
+
+  /// 设置捕获比例
+  void setCapturedScale(double scale) {
+    state = state.copyWith(capturedScale: scale);
+  }
+
+  /// 设置缩放菜单可见性
+  void setZoomMenuVisible(bool visible) {
+    state = state.copyWith(isZoomMenuVisible: visible);
+  }
+
+  /// 设置新建按钮菜单可见性
+  void setNewButtonMenuVisible(bool visible) {
+    state = state.copyWith(isNewButtonMenuVisible: visible);
   }
 
   /// 裁剪图像 (仅更新状态)
@@ -43,17 +81,52 @@ class EditorStateNotifier extends Notifier<EditorState> {
     state = state.copyWith(isLoading: loading);
   }
 
+  /// 设置当前图像数据
+  void setCurrentImageData(dynamic data) {
+    final logger = Logger();
+    logger.d(
+        'EditorStateNotifier.setCurrentImageData 被调用: 数据=${data != null ? "非空" : "空"}');
+
+    if (data == null) {
+      logger.w('传入的图像数据为空，不更新状态');
+      return;
+    }
+
+    try {
+      logger.d('接收到图像数据长度: ${data.length}');
+    } catch (e) {
+      logger.w('无法获取图像数据长度: $e');
+    }
+
+    state = state.copyWith(currentImageData: data);
+    logger.d('EditorStateNotifier.setCurrentImageData 完成: 状态已更新');
+  }
+
   /// 重置编辑器状态 (仅重置自身状态)
   void resetEditorState() {
     state = EditorState.initial();
   }
 
+  /// 加载完整的截图数据（包括图像数据、UI图像和捕获比例）
+  void loadFullScreenshotData(
+      dynamic data, ui.Image uiImage, Size size, double scale) {
+    state = state.copyWith(
+      currentImageData: data,
+      imageAsUiImage: uiImage,
+      originalImageSize: size,
+      capturedScale: scale,
+      isLoading: false,
+    );
+  }
+
   /// 加载截图并计算布局
-  double loadScreenshotWithLayout(dynamic data, Size size) {
+  double loadScreenshotWithLayout(dynamic data, Size size,
+      {double capturedScale = 1.0}) {
     // 更新自身状态
     state = state.copyWith(
       currentImageData: data,
       originalImageSize: size,
+      capturedScale: capturedScale,
       isLoading: false,
     );
 
@@ -63,9 +136,7 @@ class EditorStateNotifier extends Notifier<EditorState> {
         .recalculateLayoutForNewContent(size, state.wallpaperPadding);
 
     // 设置初始缩放
-    ref
-        .read(canvasTransformProvider.notifier)
-        .setInitialScale(initialScaleFactor);
+    ref.read(canvasTransformProvider.notifier).setZoomLevel(initialScaleFactor);
 
     return initialScaleFactor;
   }
@@ -85,7 +156,7 @@ class EditorStateNotifier extends Notifier<EditorState> {
 
     // 如果需要调整缩放（小于1.0表示内容需要缩小以适应窗口）
     if (newScale < 1.0) {
-      ref.read(canvasTransformProvider.notifier).setInitialScale(newScale);
+      ref.read(canvasTransformProvider.notifier).setZoomLevel(newScale);
     }
   }
 
@@ -106,18 +177,12 @@ class EditorStateNotifier extends Notifier<EditorState> {
         .recalculateLayoutForNewContent(newSize, state.wallpaperPadding);
 
     // 设置缩放
-    ref.read(canvasTransformProvider.notifier).setInitialScale(newScale);
+    ref.read(canvasTransformProvider.notifier).setZoomLevel(newScale);
   }
 
-  /// 重置所有相关状态
-  void resetAllState() {
-    // 重置自身状态
-    state = EditorState.initial();
-
-    // 重置其他状态
-    ref.read(layoutProvider.notifier).resetLayout();
-    ref.read(canvasTransformProvider.notifier).resetTransform();
-    ref.read(annotationProvider.notifier).clearAnnotations();
-    ref.read(toolProvider.notifier).resetToSelectionTool();
+  /// 更新原始图像尺寸
+  /// 用于由 WallpaperCanvasContainer 调用，以支持画布自动扩展
+  void updateOriginalImageSize(Size newSize) {
+    state = state.copyWith(originalImageSize: newSize);
   }
 }

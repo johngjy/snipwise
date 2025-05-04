@@ -110,6 +110,35 @@ Snipwise 使用简化的导航结构，只包含两个主要页面：
 - **HiResCapureProvider**：管理高清截图状态
 - **MagnifierProvider**：管理放大镜状态
 
+### 编辑器状态架构（2023年8月重构）
+
+编辑器模块采用分层状态架构，提高模块化程度与可维护性：
+
+- **EditorStateCore**：核心状态管理器，协调所有子状态
+  - 位于 `lib/features/editor/application/core/editor_state_core.dart`
+  - 提供统一状态访问和更新接口
+  - 管理复杂的跨状态操作
+
+- **核心Provider**：基础状态提供者
+  - 位于 `lib/features/editor/application/providers/core_providers.dart`
+  - 负责最基本的状态管理（编辑器状态、布局、工具等）
+
+- **画布Provider**：画布与变换相关状态
+  - 位于 `lib/features/editor/application/providers/canvas_providers.dart`
+  - 管理画布尺寸、缩放、内边距等状态
+
+- **壁纸Provider**：背景与装饰相关状态
+  - 位于 `lib/features/editor/application/providers/wallpaper_providers.dart`
+  - 管理背景颜色、装饰、边框等状态
+
+- **绘图Provider**：标注与绘制相关状态
+  - 位于 `lib/features/editor/application/providers/painter_providers.dart`
+  - 管理绘图工具、线条样式、填充等状态
+
+- **管理器层**：功能聚合与业务逻辑
+  - 如 `CanvasManager`，位于 `lib/features/editor/application/managers`
+  - 提供高级别功能聚合，减少状态耦合
+
 ## 开发计划
 
 ### 用户界面

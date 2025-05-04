@@ -1,11 +1,10 @@
-import 'dart:io';
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
-import 'package:logging/logging.dart';
+import 'package:logger/logger.dart';
 
 class StatusBarService {
-  static final Logger _logger = Logger('StatusBarService');
+  static final Logger _logger = Logger();
   static const MethodChannel _channel =
       MethodChannel('com.snipwise.app/status_bar');
 
@@ -13,9 +12,9 @@ class StatusBarService {
   Future<void> initialize() async {
     try {
       await _channel.invokeMethod('initializeStatusBar');
-      _logger.info('Status bar initialized successfully');
+      _logger.i('Status bar initialized successfully');
     } catch (e) {
-      _logger.severe('Failed to initialize status bar: $e');
+      _logger.e('Failed to initialize status bar: $e');
       rethrow;
     }
   }
@@ -24,9 +23,9 @@ class StatusBarService {
   Future<void> showMenu() async {
     try {
       await _channel.invokeMethod('showStatusBarMenu');
-      _logger.info('Status bar menu shown');
+      _logger.i('Status bar menu shown');
     } catch (e) {
-      _logger.severe('Failed to show status bar menu: $e');
+      _logger.e('Failed to show status bar menu: $e');
       rethrow;
     }
   }
@@ -35,9 +34,9 @@ class StatusBarService {
   Future<void> hideMenu() async {
     try {
       await _channel.invokeMethod('hideStatusBarMenu');
-      _logger.info('Status bar menu hidden');
+      _logger.i('Status bar menu hidden');
     } catch (e) {
-      _logger.severe('Failed to hide status bar menu: $e');
+      _logger.e('Failed to hide status bar menu: $e');
       rethrow;
     }
   }
@@ -46,9 +45,9 @@ class StatusBarService {
   Future<void> setIcon(String iconPath) async {
     try {
       await _channel.invokeMethod('setStatusBarIcon', {'iconPath': iconPath});
-      _logger.info('Status bar icon set to $iconPath');
+      _logger.i('Status bar icon set to $iconPath');
     } catch (e) {
-      _logger.severe('Failed to set status bar icon: $e');
+      _logger.e('Failed to set status bar icon: $e');
       rethrow;
     }
   }
@@ -57,9 +56,9 @@ class StatusBarService {
   Future<void> setTooltip(String tooltip) async {
     try {
       await _channel.invokeMethod('setStatusBarTooltip', {'tooltip': tooltip});
-      _logger.info('Status bar tooltip set to $tooltip');
+      _logger.i('Status bar tooltip set to $tooltip');
     } catch (e) {
-      _logger.severe('Failed to set status bar tooltip: $e');
+      _logger.e('Failed to set status bar tooltip: $e');
       rethrow;
     }
   }
@@ -68,9 +67,9 @@ class StatusBarService {
   Future<void> dispose() async {
     try {
       await _channel.invokeMethod('disposeStatusBar');
-      _logger.info('Status bar disposed');
+      _logger.i('Status bar disposed');
     } catch (e) {
-      _logger.severe('Failed to dispose status bar: $e');
+      _logger.e('Failed to dispose status bar: $e');
       rethrow;
     }
   }

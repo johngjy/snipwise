@@ -88,6 +88,7 @@ class EditorStatusBar extends StatelessWidget {
                   onZoomMenuTap: onZoomMenuTap,
                   zoomLayerLink: zoomLayerLink,
                   buttonKey: zoomButtonKey,
+                  fitZoomLevel: 0.75,
                 ),
               ],
             ),
