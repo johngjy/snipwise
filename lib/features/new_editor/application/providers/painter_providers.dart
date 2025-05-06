@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_painter_v2/flutter_painter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
+import 'text_cache_notifier.dart';
 
 /// 绘制模式枚举
 enum DrawingMode {
@@ -36,8 +37,9 @@ final selectedObjectDrawableProvider = StateProvider<ObjectDrawable?>((ref) {
 });
 
 /// 文本缓存提供者
-final textCacheProvider = StateProvider<List<String>>((ref) {
-  return <String>[];
+final textCacheProvider =
+    StateNotifierProvider<TextCacheNotifier, List<String>>((ref) {
+  return TextCacheNotifier();
 });
 
 /// 显示文本缓存对话框提供者

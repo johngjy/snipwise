@@ -44,8 +44,30 @@ class NewEditorPage extends ConsumerStatefulWidget {
 
 class _NewEditorPageState extends ConsumerState<NewEditorPage>
     with WindowListener {
-  final Logger _logger = Logger();
+  // 窗口服务
+  final windowManager = WindowManager.instance;
+
+  // 日志记录器
+  final _logger = Logger();
+
+  // 窗口当前状态
+  bool _isMinimized = false;
+  bool _isFullScreen = false;
+  bool _isMaximized = false;
+  bool _isLoading = true;
+  bool _isInResizeMode = false;
+
+  // 可用空间大小 - 考虑到工具栏和状态栏的高度
   Size? _availableEditorSize;
+
+  // 层链接和按钮Key - 用于菜单定位
+  final LayerLink _newButtonLayerLink = LayerLink();
+  final LayerLink _statusBarZoomLayerLink = LayerLink();
+  final GlobalKey _toolbarZoomButtonKey = GlobalKey();
+  final GlobalKey _statusBarZoomButtonKey = GlobalKey();
+
+  // 跟踪手动调整窗口大小
+  bool _userHasManuallyResized = false;
 
   @override
   void initState() {
@@ -57,9 +79,20 @@ class _NewEditorPageState extends ConsumerState<NewEditorPage>
     // 记录捕获比例
     final capturedScale = widget.scale ?? 1.0;
     _logger.d('NewEditorPage: 初始化，捕获比例=$capturedScale');
+    _logger.d('NewEditorPage: imageData是否为空: ${widget.imageData == null}');
+    if (widget.imageData != null) {
+      _logger.d('NewEditorPage: imageData大小: ${widget.imageData!.length} 字节');
+    }
+    _logger.d('NewEditorPage: imageSize: ${widget.imageSize}');
 
-    // 加载图像数据
-    _loadImageData();
+    // 使用microtask确保在build完成后加载图像数据
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _logger.d('NewEditorPage: 界面构建完成，开始加载图像数据');
+        // 加载图像数据
+        _loadImageData();
+      }
+    });
   }
 
   @override
@@ -76,29 +109,72 @@ class _NewEditorPageState extends ConsumerState<NewEditorPage>
     try {
       final imageData = widget.imageData;
       if (imageData == null) {
+        _logger.e('NewEditorPage: 图像数据为空');
         throw Exception('图像数据为空');
       }
 
+      if (imageData.isEmpty) {
+        _logger.e('NewEditorPage: 图像数据长度为0');
+        throw Exception('图像数据长度为0，无效的图像');
+      }
+
+      _logger.d('NewEditorPage: 图像数据有效，长度为 ${imageData.length} 字节');
+
+      // 先设置加载状态，提供视觉反馈
+      _logger.d('NewEditorPage: 设置加载状态为true');
+      // 使用Future.microtask确保在widget树构建完成后更新状态
+      await Future.microtask(() {
+        ref.read(canvasProvider.notifier).setLoading(true);
+      });
+
       // 解码图像获取尺寸
-      final codec = await ui.instantiateImageCodec(imageData);
-      final frame = await codec.getNextFrame();
-      final uiImage = frame.image;
-      final imageSize = widget.imageSize ??
-          Size(
-            uiImage.width.toDouble(),
-            uiImage.height.toDouble(),
-          );
+      _logger.d('NewEditorPage: 开始解码图像');
+      ui.Image? uiImage;
+      Size imageSize;
+
+      try {
+        _logger.d('NewEditorPage: 使用instantiateImageCodec解码图像...');
+        final codec = await ui.instantiateImageCodec(imageData);
+        _logger.d('NewEditorPage: 解码成功，获取第一帧...');
+        final frame = await codec.getNextFrame();
+        uiImage = frame.image;
+        _logger
+            .d('NewEditorPage: 获取到图像帧，尺寸: ${uiImage.width}x${uiImage.height}');
+
+        imageSize = widget.imageSize ??
+            Size(
+              uiImage.width.toDouble(),
+              uiImage.height.toDouble(),
+            );
+
+        _logger.d(
+            'NewEditorPage: 图像解码完成, 尺寸=${imageSize.width}x${imageSize.height}, 比例=${widget.scale ?? 1.0}');
+      } catch (decodeError) {
+        _logger.e('NewEditorPage: 图像解码失败', error: decodeError);
+        throw Exception('图像解码失败: $decodeError');
+      }
+
       final capturedScale = widget.scale ?? 1.0;
 
-      // 确保在构建后更新状态
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
+      // 如果组件已销毁，直接返回
+      if (!mounted) {
+        _logger.w('NewEditorPage: 组件已销毁，取消加载');
+        // 释放资源
+        uiImage?.dispose();
+        return;
+      }
 
-        // 获取核心状态管理器
-        final editorCore = ref.read(editorStateCoreProvider);
+      // 获取核心状态管理器
+      _logger.d('NewEditorPage: 获取editorStateCoreProvider');
+      try {
+        // 使用Future.microtask确保在widget树构建完成后获取Provider
+        final editorCore =
+            await Future.microtask(() => ref.read(editorStateCoreProvider));
+        _logger.d('NewEditorPage: 成功获取editorCore');
 
-        // 加载截图数据
-        editorCore.loadScreenshot(
+        // 直接加载截图数据，不延迟到下一帧
+        _logger.d('NewEditorPage: 调用editorCore.loadScreenshot');
+        final initialScaleFactor = await editorCore.loadScreenshot(
           imageData,
           imageSize,
           capturedScale: capturedScale,
@@ -106,10 +182,95 @@ class _NewEditorPageState extends ConsumerState<NewEditorPage>
         );
 
         _logger.d(
-            'NewEditorPage: 图像加载完成，尺寸=${imageSize.width}x${imageSize.height}');
-      });
+            'NewEditorPage: 图像加载完成，尺寸=${imageSize.width}x${imageSize.height}，初始缩放因子=$initialScaleFactor');
+      } catch (providerError) {
+        _logger.e('NewEditorPage: 获取或使用editorCore时出错', error: providerError);
+        throw providerError; // 重新抛出，以便被外层catch捕获
+      } finally {
+        // 确保释放uiImage资源，避免内存泄漏
+        // 注意：uiImage已经传递给Provider，可能已经被其他地方使用，慎重考虑是否需要在这里释放
+        // uiImage?.dispose();
+      }
     } catch (e, stackTrace) {
       _logger.e('NewEditorPage: 加载图像失败', error: e, stackTrace: stackTrace);
+      // 确保即使出错也取消加载状态
+      if (mounted) {
+        // 使用Future.microtask确保在widget树构建完成后更新状态
+        await Future.microtask(() {
+          ref.read(canvasProvider.notifier).setLoading(false);
+        });
+
+        // 显示错误提示
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('加载图像失败: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10), // 延长错误显示时间
+          ),
+        );
+      }
+    }
+  }
+
+  /// 处理新截图
+  Future<void> handleNewScreenshot(Uint8List imageData, Size size,
+      {double capturedScale = 1.0, ui.Image? uiImage}) async {
+    _logger.d('NewEditorPage: 处理新截图，尺寸=${size.width}x${size.height}');
+
+    try {
+      // 设置加载状态为true
+      await Future.microtask(() {
+        ref.read(canvasProvider.notifier).setLoading(true);
+      });
+      _logger.d('NewEditorPage: 设置加载状态为true');
+
+      // 如果没有传入uiImage，则解码获取
+      if (uiImage == null) {
+        _logger.d('NewEditorPage: 开始解码图像');
+        try {
+          final codec = await ui.instantiateImageCodec(imageData);
+          final frame = await codec.getNextFrame();
+          uiImage = frame.image;
+          _logger.d('NewEditorPage: 图像解码完成');
+        } catch (decodeError) {
+          _logger.e('NewEditorPage: 图像解码失败', error: decodeError);
+          // 继续执行，uiImage将保持为null
+        }
+      }
+
+      // 使用Future.microtask确保在widget树构建完成后获取Provider
+      final editorCore =
+          await Future.microtask(() => ref.read(editorStateCoreProvider));
+      _logger.d('NewEditorPage: 成功获取editorCore');
+
+      // 对于后续截图，使用handleSubsequentScreenshot重置状态
+      await editorCore.handleSubsequentScreenshot(
+        imageData,
+        size,
+        capturedScale: capturedScale,
+        uiImage: uiImage,
+      );
+
+      _logger.d('NewEditorPage: 新截图处理完成');
+    } catch (e, stackTrace) {
+      _logger.e('NewEditorPage: 处理新截图失败', error: e, stackTrace: stackTrace);
+      // 确保即使出错也取消加载状态
+      if (mounted) {
+        await Future.microtask(() {
+          ref.read(canvasProvider.notifier).setLoading(false);
+        });
+
+        // 显示错误提示
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('处理截图失败: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      // 这里不需要释放uiImage，因为它可能是外部传入的
+      // 或者已经传递给了Provider
     }
   }
 
@@ -129,57 +290,89 @@ class _NewEditorPageState extends ConsumerState<NewEditorPage>
     editorCore.setZoomLevel(newScale, focalPoint: event.position);
   }
 
+  /// 构建工具栏
+  Widget _buildToolbar() {
+    return EditorToolbar(
+      newButtonLayerLink: _newButtonLayerLink,
+      zoomButtonKey: _toolbarZoomButtonKey,
+      onShowNewButtonMenu: _showNewButtonMenu,
+      onHideNewButtonMenu: _hideNewButtonMenu,
+      onShowSaveConfirmation: _showSaveConfirmationDialog,
+      onSaveImage: _saveImage,
+      onCopyToClipboard: _copyToClipboard,
+      onExportImage: _exportImage,
+      onUndo: () => _logger.i('撤销操作'),
+      onRedo: () => _logger.i('重做操作'),
+      onZoom: () => _showZoomMenu(isFromToolbar: true),
+    );
+  }
+
+  /// 构建状态栏
+  Widget _buildStatusBar() {
+    return EditorStatusBar(
+      onSaveImage: _saveImage,
+      onCopyToClipboard: _copyToClipboard,
+      onExportImage: _exportImage,
+      onCrop: _cropImage,
+      onOpenFileLocation: _openImageLocation,
+      onZoomMenuTap: () => _showZoomMenu(isFromToolbar: false),
+      zoomLayerLink: _statusBarZoomLayerLink,
+      zoomButtonKey: _statusBarZoomButtonKey,
+    );
+  }
+
+  /// 显示缩放菜单
+  void _showZoomMenu({bool isFromToolbar = false}) {
+    _logger.d('显示缩放菜单, isFromToolbar=$isFromToolbar');
+    // 这里实现缩放菜单逻辑
+  }
+
   /// 保存图像
-  Future<void> _saveImage() async {
-    _logger.d('NewEditorPage: 保存图像');
-    // 这里实现保存图像的逻辑，可以调用文件选择对话框并保存图像
+  void _saveImage() {
+    _logger.i('保存图像');
+    // 实现保存图像逻辑
   }
 
   /// 复制到剪贴板
-  Future<void> _copyToClipboard() async {
-    _logger.d('NewEditorPage: 复制到剪贴板');
-
-    try {
-      final canvasState = ref.read(canvasProvider);
-      if (canvasState.imageData != null) {
-        // 设置剪贴板数据
-        await Clipboard.setData(
-          ClipboardData(text: '截图已复制'),
-        );
-
-        // TODO: 实现真正的图像复制功能
-        // 暂时使用文本代替，Flutter目前不直接支持图像复制到剪贴板
-
-        // 显示提示
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('已复制到剪贴板'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-    } catch (e, stackTrace) {
-      _logger.e('NewEditorPage: 复制到剪贴板失败', error: e, stackTrace: stackTrace);
-
-      // 显示错误提示
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('复制到剪贴板失败'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    }
+  void _copyToClipboard() {
+    _logger.i('复制到剪贴板');
+    // 实现复制到剪贴板逻辑
   }
 
   /// 导出图像
-  Future<void> _exportImage() async {
-    _logger.d('NewEditorPage: 导出图像');
-    // 这里实现导出图像的逻辑，可能会打开导出选项对话框
+  void _exportImage() {
+    _logger.i('导出图像');
+    // 实现导出图像逻辑
+  }
+
+  /// 裁剪图像
+  void _cropImage() {
+    _logger.i('裁剪图像');
+    // 实现裁剪图像逻辑
+  }
+
+  /// 打开图像位置
+  void _openImageLocation() {
+    _logger.i('打开图像位置');
+    // 实现打开图像位置逻辑
+  }
+
+  /// 显示保存确认对话框
+  void _showSaveConfirmationDialog() {
+    _logger.i('显示保存确认对话框');
+    // 实现显示保存确认对话框逻辑
+  }
+
+  /// 显示新建按钮菜单
+  void _showNewButtonMenu() {
+    _logger.i('显示新建按钮菜单');
+    // 实现显示新建按钮菜单逻辑
+  }
+
+  /// 隐藏新建按钮菜单
+  void _hideNewButtonMenu() {
+    _logger.i('隐藏新建按钮菜单');
+    // 实现隐藏新建按钮菜单逻辑
   }
 
   @override
@@ -203,11 +396,7 @@ class _NewEditorPageState extends ConsumerState<NewEditorPage>
       body: Column(
         children: [
           // 顶部工具栏
-          EditorToolbar(
-            onSaveImage: _saveImage,
-            onCopyToClipboard: _copyToClipboard,
-            onExportImage: _exportImage,
-          ),
+          _buildToolbar(),
 
           // 主内容区域
           Expanded(
@@ -238,11 +427,7 @@ class _NewEditorPageState extends ConsumerState<NewEditorPage>
           ),
 
           // 底部状态栏
-          EditorStatusBar(
-            onSaveImage: _saveImage,
-            onCopyToClipboard: _copyToClipboard,
-            onExportImage: _exportImage,
-          ),
+          _buildStatusBar(),
         ],
       ),
     );
@@ -253,5 +438,13 @@ class _NewEditorPageState extends ConsumerState<NewEditorPage>
     _logger.d('NewEditorPage: 窗口大小变化');
     // 窗口大小变化时重新计算可用编辑区域大小
     setState(() {});
+
+    // 获取新的窗口尺寸并通知编辑器核心
+    windowManager.getSize().then((size) {
+      if (mounted) {
+        final editorCore = ref.read(editorStateCoreProvider);
+        editorCore.handleWindowResize(size);
+      }
+    });
   }
 }

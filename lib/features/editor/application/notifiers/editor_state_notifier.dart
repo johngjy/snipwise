@@ -81,25 +81,41 @@ class EditorStateNotifier extends Notifier<EditorState> {
     state = state.copyWith(isLoading: loading);
   }
 
+  /// 用于跟踪上一次的图像数据哈希
+  int? _lastImageDataHash;
+
   /// 设置当前图像数据
   void setCurrentImageData(dynamic data) {
     final logger = Logger();
-    logger.d(
-        'EditorStateNotifier.setCurrentImageData 被调用: 数据=${data != null ? "非空" : "空"}');
 
     if (data == null) {
-      logger.w('传入的图像数据为空，不更新状态');
+      // 只在之前有数据而现在变为null时记录日志
+      if (_lastImageDataHash != null) {
+        logger.w('传入的图像数据为空，不更新状态');
+        _lastImageDataHash = null;
+      }
       return;
     }
 
-    try {
-      logger.d('接收到图像数据长度: ${data.length}');
-    } catch (e) {
-      logger.w('无法获取图像数据长度: $e');
-    }
+    // 计算当前数据的哈希值
+    final currentHash = data.hashCode;
 
-    state = state.copyWith(currentImageData: data);
-    logger.d('EditorStateNotifier.setCurrentImageData 完成: 状态已更新');
+    // 仅当图像数据发生变化时才更新和记录日志
+    if (_lastImageDataHash != currentHash) {
+      _lastImageDataHash = currentHash;
+
+      logger
+          .d('EditorStateNotifier.setCurrentImageData: 数据已更新，哈希值=$currentHash');
+
+      try {
+        logger.d('接收到图像数据长度: ${data.length}');
+      } catch (e) {
+        logger.w('无法获取图像数据长度: $e');
+      }
+
+      state = state.copyWith(currentImageData: data);
+      logger.d('EditorStateNotifier.setCurrentImageData 完成: 状态已更新');
+    }
   }
 
   /// 重置编辑器状态 (仅重置自身状态)

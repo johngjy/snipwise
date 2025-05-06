@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../application/core/editor_state_core.dart';
 import '../../application/providers/state_providers.dart';
 import '../../application/states/wallpaper_state.dart';
 import '../../application/providers/wallpaper_providers.dart';
 import 'wallpaper_panel/components/setting_slider.dart';
+import 'wallpaper_panel/components/color_grid.dart';
+import 'wallpaper_panel/components/gradient_grid.dart';
+import 'wallpaper_panel/components/blurred_grid.dart';
 
 /// 壁纸设置面板
 /// 用于控制壁纸类型、颜色、渐变、模糊背景等设置
@@ -98,7 +100,7 @@ class WallpaperPanel extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    _buildGradientsGrid(ref, wallpaperState),
+                    const GradientGrid(),
                     const SizedBox(height: 12),
 
                     // 纯色背景选项
@@ -111,7 +113,7 @@ class WallpaperPanel extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    _buildColorGrid(ref, wallpaperState),
+                    const ColorGrid(),
                     const SizedBox(height: 12),
 
                     // 模糊背景选项
@@ -124,7 +126,7 @@ class WallpaperPanel extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    _buildBlurredGrid(ref, wallpaperState),
+                    const BlurredGrid(),
                     const SizedBox(height: 16),
 
                     // 分隔线
@@ -174,127 +176,6 @@ class WallpaperPanel extends ConsumerWidget {
           ),
         ),
       ),
-    );
-  }
-
-  /// 构建渐变网格
-  Widget _buildGradientsGrid(WidgetRef ref, WallpaperState settings) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-        childAspectRatio: 1,
-      ),
-      itemCount: gradientPresets.length,
-      itemBuilder: (context, index) {
-        final isSelected = settings.type == WallpaperType.gradient &&
-            settings.selectedGradientIndex == index;
-
-        return InkWell(
-          onTap: () =>
-              ref.read(wallpaperProvider.notifier).setGradientPreset(index),
-          borderRadius: BorderRadius.circular(6),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: gradientPresets[index].gradient,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: isSelected ? Colors.blue.shade400 : Colors.transparent,
-                width: 2,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  /// 构建纯色网格
-  Widget _buildColorGrid(WidgetRef ref, WallpaperState settings) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 6,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-        childAspectRatio: 1,
-      ),
-      itemCount: plainColors.length,
-      itemBuilder: (context, index) {
-        final color = plainColors[index];
-        final isSelected = settings.type == WallpaperType.plainColor &&
-            settings.backgroundColor == color;
-
-        return InkWell(
-          onTap: () =>
-              ref.read(wallpaperProvider.notifier).setPlainColor(color),
-          borderRadius: BorderRadius.circular(6),
-          child: Container(
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: isSelected ? Colors.blue.shade400 : Colors.transparent,
-                width: 2,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  /// 构建模糊背景网格
-  Widget _buildBlurredGrid(WidgetRef ref, WallpaperState settings) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-        childAspectRatio: 1,
-      ),
-      itemCount: blurredBackgrounds.length,
-      itemBuilder: (context, index) {
-        final blurBg = blurredBackgrounds[index];
-        final isSelected = settings.type == WallpaperType.blurred &&
-            settings.selectedBlurIndex == index;
-
-        return InkWell(
-          onTap: () =>
-              ref.read(wallpaperProvider.notifier).setBlurredPreset(index),
-          borderRadius: BorderRadius.circular(6),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [blurBg.startColor, blurBg.endColor],
-              ),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: isSelected ? Colors.blue.shade400 : Colors.transparent,
-                width: 2,
-              ),
-            ),
-            child: Center(
-              child: Text(
-                blurBg.name,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: _contrastColor(blurBg.startColor),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -389,17 +270,5 @@ class WallpaperPanel extends ConsumerWidget {
         ),
       ],
     );
-  }
-
-  /// 获取与背景对比的文字颜色
-  Color _contrastColor(Color background) {
-    // 计算亮度
-    final brightness = (0.299 * background.red +
-            0.587 * background.green +
-            0.114 * background.blue) /
-        255;
-
-    // 如果背景较暗，则使用白色文字
-    return brightness < 0.5 ? Colors.white : Colors.black;
   }
 }

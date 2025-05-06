@@ -1,14 +1,31 @@
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../application/core/editor_state_core.dart';
 import '../../application/providers/painter_providers.dart';
 import '../../application/providers/state_providers.dart';
 import 'toolbar/tool_button.dart';
+import 'new_button_menu.dart';
 
 /// 编辑器顶部工具栏
 class EditorToolbar extends ConsumerWidget {
+  /// 工具按钮LayerLink
+  final LayerLink? newButtonLayerLink;
+
+  /// 缩放按钮Key
+  final GlobalKey? zoomButtonKey;
+
+  /// 显示新建按钮菜单的回调
+  final VoidCallback? onShowNewButtonMenu;
+
+  /// 隐藏新建按钮菜单的回调
+  final VoidCallback? onHideNewButtonMenu;
+
+  /// 显示保存确认对话框的回调
+  final VoidCallback? onShowSaveConfirmation;
+
   /// 保存图像回调
   final VoidCallback? onSaveImage;
 
@@ -18,13 +35,30 @@ class EditorToolbar extends ConsumerWidget {
   /// 导出图像回调
   final VoidCallback? onExportImage;
 
+  /// 撤销操作回调
+  final VoidCallback? onUndo;
+
+  /// 重做操作回调
+  final VoidCallback? onRedo;
+
+  /// 缩放操作回调
+  final VoidCallback? onZoom;
+
   /// 构造函数
   const EditorToolbar({
-    Key? key,
+    super.key,
+    this.newButtonLayerLink,
+    this.zoomButtonKey,
+    this.onShowNewButtonMenu,
+    this.onHideNewButtonMenu,
+    this.onShowSaveConfirmation,
     this.onSaveImage,
     this.onCopyToClipboard,
     this.onExportImage,
-  }) : super(key: key);
+    this.onUndo,
+    this.onRedo,
+    this.onZoom,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -45,6 +79,50 @@ class EditorToolbar extends ConsumerWidget {
           // macOS系统左侧预留空间
           if (isMacOS) const SizedBox(width: 50),
 
+          // New按钮
+          if (newButtonLayerLink != null)
+            CompositedTransformTarget(
+              link: newButtonLayerLink!,
+              child: MouseRegion(
+                onEnter: (_) => onShowNewButtonMenu?.call(),
+                onExit: (_) => onHideNewButtonMenu?.call(),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 3,
+                  ),
+                  child: InkWell(
+                    onTap: onShowNewButtonMenu,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          PhosphorIcons.plus(PhosphorIconsStyle.light),
+                          size: 18,
+                          color: Colors.grey[700],
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'New',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[800],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          if (newButtonLayerLink != null) const SizedBox(width: 12),
+
           // Wallpaper按钮
           Container(
             decoration: BoxDecoration(
@@ -64,7 +142,7 @@ class EditorToolbar extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.palette,
+                    PhosphorIcons.palette(PhosphorIconsStyle.light),
                     size: 18,
                     color: ref.watch(wallpaperPanelVisibleProvider)
                         ? Colors.blue.shade700
@@ -103,52 +181,53 @@ class EditorToolbar extends ConsumerWidget {
                 child: Row(
                   children: [
                     // 选择工具
-                    _buildToolButton(
-                      icon: Icons.pan_tool,
+                    ToolButton(
+                      icon: PhosphorIcons.arrowsOut(PhosphorIconsStyle.light),
                       isSelected: currentDrawingMode == DrawingMode.selection,
                       onTap: () =>
                           updateDrawingMode(ref, DrawingMode.selection),
                     ),
 
                     // 矩形工具
-                    _buildToolButton(
-                      icon: Icons.crop_square,
+                    ToolButton(
+                      icon: PhosphorIcons.square(PhosphorIconsStyle.light),
                       isSelected: currentDrawingMode == DrawingMode.rectangle,
                       onTap: () =>
                           updateDrawingMode(ref, DrawingMode.rectangle),
                     ),
 
                     // 椭圆工具
-                    _buildToolButton(
-                      icon: Icons.circle_outlined,
+                    ToolButton(
+                      icon: PhosphorIcons.circle(PhosphorIconsStyle.light),
                       isSelected: currentDrawingMode == DrawingMode.oval,
                       onTap: () => updateDrawingMode(ref, DrawingMode.oval),
                     ),
 
                     // 箭头工具
-                    _buildToolButton(
-                      icon: Icons.arrow_right_alt,
+                    ToolButton(
+                      icon: PhosphorIcons.arrowRight(PhosphorIconsStyle.light),
                       isSelected: currentDrawingMode == DrawingMode.arrow,
                       onTap: () => updateDrawingMode(ref, DrawingMode.arrow),
                     ),
 
                     // 文本工具
-                    _buildToolButton(
-                      icon: Icons.text_fields,
+                    ToolButton(
+                      icon: PhosphorIcons.textT(PhosphorIconsStyle.light),
                       isSelected: currentDrawingMode == DrawingMode.text,
                       onTap: () => updateDrawingMode(ref, DrawingMode.text),
                     ),
 
                     // 手绘工具
-                    _buildToolButton(
-                      icon: Icons.brush,
+                    ToolButton(
+                      icon:
+                          PhosphorIcons.scribbleLoop(PhosphorIconsStyle.light),
                       isSelected: currentDrawingMode == DrawingMode.pen,
                       onTap: () => updateDrawingMode(ref, DrawingMode.pen),
                     ),
 
                     // 橡皮擦工具
-                    _buildToolButton(
-                      icon: Icons.auto_fix_normal,
+                    ToolButton(
+                      icon: PhosphorIcons.eraser(PhosphorIconsStyle.light),
                       isSelected: currentDrawingMode == DrawingMode.eraser,
                       onTap: () => updateDrawingMode(ref, DrawingMode.eraser),
                     ),
@@ -162,20 +241,22 @@ class EditorToolbar extends ConsumerWidget {
                     ),
 
                     // 撤销按钮
-                    _buildToolButton(
-                      icon: Icons.undo,
+                    ToolButton(
+                      icon: PhosphorIcons.arrowCounterClockwise(
+                          PhosphorIconsStyle.light),
                       isSelected: false,
                       onTap: painterController.canUndo
-                          ? () => painterController.undo()
+                          ? (onUndo ?? () => painterController.undo())
                           : null,
                     ),
 
                     // 重做按钮
-                    _buildToolButton(
-                      icon: Icons.redo,
+                    ToolButton(
+                      icon: PhosphorIcons.arrowClockwise(
+                          PhosphorIconsStyle.light),
                       isSelected: false,
                       onTap: painterController.canRedo
-                          ? () => painterController.redo()
+                          ? (onRedo ?? () => painterController.redo())
                           : null,
                     ),
 
@@ -188,8 +269,8 @@ class EditorToolbar extends ConsumerWidget {
                     ),
 
                     // 颜色选择按钮
-                    _buildToolButton(
-                      icon: Icons.color_lens,
+                    ToolButton(
+                      icon: PhosphorIcons.palette(PhosphorIconsStyle.light),
                       isSelected: false,
                       color: ref.watch(strokeColorProvider),
                       onTap: () {
@@ -198,23 +279,23 @@ class EditorToolbar extends ConsumerWidget {
                     ),
 
                     // 线宽选择按钮
-                    _buildToolButton(
-                      icon: Icons.line_weight,
+                    ToolButton(
+                      icon: PhosphorIcons.lineSegment(PhosphorIconsStyle.light),
                       isSelected: false,
                       onTap: () => _showStrokeWidthDialog(context, ref),
                     ),
 
                     // 填充开关
-                    _buildToolButton(
-                      icon: Icons.format_color_fill,
+                    ToolButton(
+                      icon: PhosphorIcons.paintBucket(PhosphorIconsStyle.light),
                       isSelected: ref.watch(isFilledProvider),
                       onTap: () => ref.read(isFilledProvider.notifier).state =
                           !ref.watch(isFilledProvider),
                     ),
 
                     // 清除所有按钮
-                    _buildToolButton(
-                      icon: Icons.delete_outline,
+                    ToolButton(
+                      icon: PhosphorIcons.trash(PhosphorIconsStyle.light),
                       isSelected: false,
                       onTap: () =>
                           painterUtils.clearAllDrawables(painterController),
@@ -228,18 +309,29 @@ class EditorToolbar extends ConsumerWidget {
           const SizedBox(width: 12),
 
           // 适应视口按钮
-          _buildToolButton(
-            icon: Icons.fit_screen,
+          ToolButton(
+            icon: PhosphorIcons.frameCorners(PhosphorIconsStyle.light),
             isSelected: false,
             onTap: () => editorCore.fitContentToViewport(),
           ),
 
           const SizedBox(width: 2),
 
+          // 缩放按钮
+          if (zoomButtonKey != null && onZoom != null)
+            ToolButton(
+              buttonKey: zoomButtonKey,
+              icon: PhosphorIcons.magnifyingGlass(PhosphorIconsStyle.light),
+              isSelected: false,
+              onTap: onZoom,
+            ),
+
+          const SizedBox(width: 2),
+
           // 保存按钮
           if (onSaveImage != null)
-            _buildToolButton(
-              icon: Icons.save,
+            ToolButton(
+              icon: PhosphorIcons.floppyDisk(PhosphorIconsStyle.light),
               isSelected: false,
               onTap: onSaveImage,
             ),
@@ -248,16 +340,18 @@ class EditorToolbar extends ConsumerWidget {
 
           // 复制到剪贴板按钮
           if (onCopyToClipboard != null)
-            _buildToolButton(
-              icon: Icons.copy,
+            ToolButton(
+              icon: PhosphorIcons.copySimple(PhosphorIconsStyle.light),
               isSelected: false,
               onTap: onCopyToClipboard,
             ),
 
+          const SizedBox(width: 2),
+
           // 导出按钮
           if (onExportImage != null)
-            _buildToolButton(
-              icon: Icons.file_download,
+            ToolButton(
+              icon: PhosphorIcons.export(PhosphorIconsStyle.light),
               isSelected: false,
               onTap: onExportImage,
             ),
@@ -266,76 +360,73 @@ class EditorToolbar extends ConsumerWidget {
     );
   }
 
-  /// 构建工具按钮
-  Widget _buildToolButton({
-    required IconData icon,
-    required bool isSelected,
-    Color? color,
-    VoidCallback? onTap,
-  }) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 2),
-      child: IconButton(
-        icon: Icon(
-          icon,
-          size: 20,
-          color:
-              color ?? (isSelected ? Colors.blue.shade700 : Colors.grey[800]),
-        ),
-        onPressed: onTap,
-        padding: const EdgeInsets.all(8),
-        splashRadius: 20,
-        tooltip: '工具按钮',
-      ),
-    );
-  }
-
   /// 显示线宽选择对话框
   void _showStrokeWidthDialog(BuildContext context, WidgetRef ref) {
     final currentWidth = ref.read(strokeWidthProvider);
-    double selectedWidth = currentWidth;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('选择线宽'),
-        content: StatefulBuilder(
-          builder: (context, setState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Slider(
-                value: selectedWidth,
-                min: 1.0,
-                max: 20.0,
-                divisions: 19,
-                label: selectedWidth.toStringAsFixed(1),
-                onChanged: (value) {
-                  setState(() => selectedWidth = value);
-                },
+      builder: (context) {
+        double selectedWidth = currentWidth;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('选择线宽'),
+              content: SizedBox(
+                width: 300,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Slider(
+                      value: selectedWidth,
+                      min: 1,
+                      max: 30,
+                      divisions: 29,
+                      label: selectedWidth.round().toString(),
+                      onChanged: (value) {
+                        setState(() {
+                          selectedWidth = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      height: selectedWidth,
+                      width: 100,
+                      decoration: BoxDecoration(
+                        color: ref.read(strokeColorProvider),
+                        borderRadius: BorderRadius.circular(selectedWidth / 2),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              Container(
-                height: selectedWidth,
-                width: 100,
-                color: ref.read(strokeColorProvider),
-                margin: const EdgeInsets.only(top: 10),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () {
-              ref.read(strokeWidthProvider.notifier).state = selectedWidth;
-              Navigator.of(context).pop();
-            },
-            child: const Text('确定'),
-          ),
-        ],
-      ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('取消'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    ref.read(strokeWidthProvider.notifier).state =
+                        selectedWidth;
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('确定'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
+  }
+
+  /// 更新绘图模式
+  void updateDrawingMode(WidgetRef ref, DrawingMode mode) {
+    ref.read(currentDrawingModeProvider.notifier).state = mode;
   }
 }

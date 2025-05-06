@@ -4,10 +4,15 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../states/canvas_state.dart';
 import '../states/wallpaper_state.dart';
 import '../providers/state_providers.dart';
+import '../helpers/canvas_layout_connector.dart'
+    show canvasLayoutConnectorProvider;
+import '../managers/layout_manager.dart';
+import '../providers/canvas_providers.dart' show canvasTransformProvider;
 
 /// 编辑器核心状态管理器
 /// 协调各个状态之间的交互，提供统一的状态管理接口
@@ -28,35 +33,107 @@ class EditorStateCore {
   // ====== 协调更新接口 ======
 
   /// 加载截图数据
-  /// 统一更新画布状态和壁纸内边距
+  /// 统一更新画布状态和壁纸内边距，使用新的布局管理器
   Future<double> loadScreenshot(Uint8List imageData, Size size,
       {double capturedScale = 1.0, ui.Image? uiImage}) async {
-    _logger.d('核心状态管理器: 加载截图');
+    _logger.d(
+        '核心状态管理器: 开始加载截图, 尺寸=${size.width}x${size.height}, 比例=$capturedScale, 数据长度=${imageData.length} 字节');
 
-    // 获取当前壁纸内边距并同步到画布状态
-    final padding = _ref.read(wallpaperProvider).padding;
-    final edgeInsets = EdgeInsets.all(padding);
+    try {
+      if (imageData.isEmpty) {
+        _logger.e('核心状态管理器: 收到的图像数据为空！');
+        throw Exception('截图数据为空，无法加载');
+      }
 
-    // 设置加载状态
-    _ref.read(canvasProvider.notifier).setLoading(true);
+      // 先设置加载状态
+      await Future.microtask(() {
+        _ref.read(canvasProvider.notifier).setLoading(true);
+      });
+      _logger.d('核心状态管理器: 已设置加载状态=true');
 
-    // 加载截图数据
-    _ref.read(canvasProvider.notifier).loadScreenshot(
-          imageData,
-          size,
-          capturedScale: capturedScale,
-          uiImage: uiImage,
-        );
+      // 重置所有状态
+      await Future.microtask(() {
+        resetAllState();
+        _logger.d('核心状态管理器: 已重置所有状态');
+      });
 
-    // 适应内容到视口
-    _ref.read(canvasProvider.notifier).fitContent();
+      // 使用布局连接器处理截图
+      final connector = _ref.read(canvasLayoutConnectorProvider);
+      _logger.d('核心状态管理器: 使用布局连接器处理截图');
 
-    // 获取适合视口的缩放比例
-    final fitScale = canvasState.scale;
+      // 使用processScreenshot方法避免循环依赖
+      final initialScaleFactor = await connector.processScreenshot(
+          imageData, size,
+          capturedScale: capturedScale, uiImage: uiImage);
 
-    _logger.d('核心状态管理器: 截图加载完成，适合缩放比例=$fitScale');
+      _logger.d('核心状态管理器: 截图加载完成，初始缩放因子=$initialScaleFactor');
 
-    return fitScale;
+      return initialScaleFactor;
+    } catch (e, stack) {
+      _logger.e('核心状态管理器: 截图加载失败', error: e, stackTrace: stack);
+      // 确保在出错时取消加载状态
+      await Future.microtask(() {
+        _ref.read(canvasProvider.notifier).setLoading(false);
+      });
+      // 确保在出错时也返回一个默认值
+      return 1.0;
+    }
+  }
+
+  /// 处理第二次及后续截图
+  /// 完全重置状态并基于新截图重新计算布局
+  Future<double> handleSubsequentScreenshot(Uint8List imageData, Size size,
+      {double capturedScale = 1.0, ui.Image? uiImage}) async {
+    _logger.d(
+        '核心状态管理器: 处理后续截图，尺寸=${size.width}x${size.height}, 比例=$capturedScale');
+
+    try {
+      // 先设置加载状态，避免用户看到过渡状态
+      await Future.microtask(() {
+        _ref.read(canvasProvider.notifier).setLoading(true);
+      });
+      _logger.d('核心状态管理器: 设置加载状态为true');
+
+      // 重置所有状态 - 确保完全清除旧数据
+      await Future.microtask(() {
+        // 重置基础状态
+        resetAllState();
+        _logger.d('核心状态管理器: 已重置所有状态');
+
+        // 确保画布变换重置
+        _ref.read(canvasTransformProvider.notifier).setZoomLevel(1.0);
+        _ref.read(canvasTransformProvider.notifier).setOffset(Offset.zero);
+        _logger.d('核心状态管理器: 已重置画布变换');
+
+        // 确保画布内边距重置
+        _ref.read(canvasProvider.notifier).setPadding(EdgeInsets.zero);
+        _logger.d('核心状态管理器: 已重置画布内边距');
+
+        // 确保壁纸面板隐藏
+        _ref.read(wallpaperPanelVisibleProvider.notifier).state = false;
+        _logger.d('核心状态管理器: 已隐藏壁纸面板');
+      });
+
+      // 等待状态重置完成
+      await Future.delayed(Duration(milliseconds: 150));
+      _logger.d('核心状态管理器: 延迟完成，确保状态重置已应用');
+
+      // 加载新截图
+      _logger.d('核心状态管理器: 开始加载新截图');
+      final result = await loadScreenshot(imageData, size,
+          capturedScale: capturedScale, uiImage: uiImage);
+
+      _logger.d('核心状态管理器: 后续截图处理完成，初始缩放因子=$result');
+      return result;
+    } catch (e, stack) {
+      _logger.e('核心状态管理器: 处理后续截图失败', error: e, stackTrace: stack);
+      // 确保即使出错也取消加载状态
+      await Future.microtask(() {
+        _ref.read(canvasProvider.notifier).setLoading(false);
+      });
+      // 确保在出错时也返回一个默认值
+      return 1.0;
+    }
   }
 
   /// 设置壁纸内边距
@@ -67,8 +144,10 @@ class EditorStateCore {
     // 更新壁纸设置
     _ref.read(wallpaperProvider.notifier).setPadding(padding);
 
-    // 更新画布内边距
-    _ref.read(canvasProvider.notifier).setPadding(EdgeInsets.all(padding));
+    // 使用布局连接器处理内边距变化
+    _ref
+        .read(canvasLayoutConnectorProvider)
+        .handlePaddingChange(EdgeInsets.all(padding));
   }
 
   /// 设置缩放级别
@@ -152,20 +231,36 @@ class EditorStateCore {
   void resetAllState() {
     _logger.d('核心状态管理器: 重置所有状态');
 
+    // 重置布局状态
+    _ref.read(layoutManagerProvider).resetLayoutState();
+
     // 重置画布变换
     _ref.read(canvasProvider.notifier).resetTransform();
 
     // 重置壁纸设置
     _ref.read(wallpaperProvider.notifier).resetToDefaults();
+
+    // 重置壁纸面板显示状态
+    _ref.read(wallpaperPanelVisibleProvider.notifier).state = false;
   }
 
   /// 调整内容适应视口
   double fitContentToViewport() {
     _logger.d('核心状态管理器: 调整内容适应视口');
 
-    _ref.read(canvasProvider.notifier).fitContent();
+    // 获取当前画布状态
+    final state = _ref.read(canvasProvider);
 
-    return canvasState.scale;
+    // 如果有原始图像尺寸，重新计算布局
+    if (state.originalImageSize != null) {
+      return _ref
+          .read(layoutManagerProvider)
+          .calculateInitialLayout(state.originalImageSize!);
+    } else {
+      // 否则使用常规方法
+      _ref.read(canvasProvider.notifier).fitContent();
+      return state.scale;
+    }
   }
 
   /// 切换壁纸面板可见性
@@ -193,5 +288,12 @@ class EditorStateCore {
     _logger.d('核心状态管理器: 处理缩放手势结束');
 
     _ref.read(canvasProvider.notifier).endScale();
+  }
+
+  /// 处理窗口大小变化
+  void handleWindowResize(Size newSize) {
+    _logger.d('核心状态管理器: 处理窗口大小变化 ${newSize.width}x${newSize.height}');
+
+    _ref.read(canvasLayoutConnectorProvider).handleWindowResize(newSize);
   }
 }

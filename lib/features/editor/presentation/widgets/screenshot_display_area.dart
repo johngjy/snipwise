@@ -85,6 +85,10 @@ class _ScreenshotDisplayAreaState extends ConsumerState<ScreenshotDisplayArea> {
   // 静态变量用于缩放状态防抖
   static double _lastLoggedScale = 0.0;
 
+  // 跟踪上一次的图像数据，避免重复更新
+  Uint8List? _previousImageData;
+  int? _previousImageHash;
+
   @override
   Widget build(BuildContext context) {
     // 监听画布变换状态和缩放比例
@@ -107,27 +111,42 @@ class _ScreenshotDisplayAreaState extends ConsumerState<ScreenshotDisplayArea> {
     // 将图像数据和尺寸更新到全局状态
     // 使用 addPostFrameCallback 避免在构建过程中修改状态
     if (widget.imageData != null) {
-      // 使用变量保存当前引用，避免在回调中直接使用 ref
-      final editorStateNotifier = ref.read(editorStateProvider.notifier);
+      // 计算当前图像数据的哈希值，用于比较是否发生变化
+      final currentImageHash = widget.imageData.hashCode;
 
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        try {
-          // 更新当前图像数据
-          editorStateNotifier.setCurrentImageData(widget.imageData);
+      // 仅当图像数据发生变化时才更新状态
+      if (_previousImageHash != currentImageHash) {
+        _previousImageHash = currentImageHash;
+        _previousImageData = widget.imageData;
 
-          // 如果有图像逻辑尺寸，更新画布尺寸
-          if (widget.imageLogicalSize != null) {
-            editorStateNotifier
-                .updateOriginalImageSize(widget.imageLogicalSize!);
+        // 使用变量保存当前引用，避免在回调中直接使用 ref
+        final editorStateNotifier = ref.read(editorStateProvider.notifier);
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          try {
+            // 更新当前图像数据
+            editorStateNotifier.setCurrentImageData(widget.imageData);
+
+            // 如果有图像逻辑尺寸，更新画布尺寸
+            if (widget.imageLogicalSize != null) {
+              editorStateNotifier
+                  .updateOriginalImageSize(widget.imageLogicalSize!);
+            }
+
+            if (kDebugMode) {
+              print('更新图像数据: 哈希值=$currentImageHash');
+            }
+          } catch (e) {
+            // 安全处理可能的错误（例如 StateError）
+            if (kDebugMode) {
+              print('更新图像数据错误: $e');
+            }
           }
-        } catch (e) {
-          // 安全处理可能的错误（例如 StateError）
-          if (kDebugMode) {
-            print('更新图像数据错误: $e');
-          }
-        }
-      });
+        });
+      } else if (kDebugMode) {
+        print('图像数据未变化，跳过更新: 哈希值=$currentImageHash');
+      }
     }
 
     // 获取是否显示wallpaper面板

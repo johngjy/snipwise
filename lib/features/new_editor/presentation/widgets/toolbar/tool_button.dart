@@ -1,50 +1,53 @@
 import 'package:flutter/material.dart';
 
-/// 工具栏按钮组件
+/// 工具按钮组件
+///
+/// 用于编辑器工具栏中的工具选择按钮
 class ToolButton extends StatelessWidget {
-  /// 图标
-  final IconData icon;
+  /// 按钮图标（支持 IconData 或自定义 Widget）
+  final dynamic icon;
 
-  /// 提示文本
-  final String tooltip;
+  /// 是否被选中
+  final bool isSelected;
 
   /// 点击回调
-  final VoidCallback onPressed;
+  final VoidCallback? onTap;
 
-  /// 是否激活
-  final bool isActive;
-
-  /// 按钮尺寸
-  final double size;
-
-  /// 按钮颜色
+  /// 自定义颜色（可选）
   final Color? color;
 
-  /// 激活颜色
-  final Color activeColor;
+  /// 按钮的 Key（可选）
+  final Key? buttonKey;
 
-  /// 构造函数
   const ToolButton({
-    Key? key,
+    super.key,
     required this.icon,
-    required this.tooltip,
-    required this.onPressed,
-    this.isActive = false,
-    this.size = 20,
+    required this.isSelected,
+    required this.onTap,
     this.color,
-    this.activeColor = Colors.blue,
-  }) : super(key: key);
+    this.buttonKey,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: IconButton(
-        icon: Icon(icon, size: size),
-        color: isActive ? activeColor : (color ?? Colors.black87),
-        onPressed: onPressed,
-        splashRadius: 20,
-        padding: const EdgeInsets.all(8),
+    return InkWell(
+      key: buttonKey,
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        padding: const EdgeInsets.all(5),
+        margin: const EdgeInsets.symmetric(horizontal: 1),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(4),
+          color: isSelected ? Colors.grey[200] : Colors.transparent,
+        ),
+        child: icon is IconData
+            ? Icon(
+                icon,
+                size: 18,
+                color: color ?? (isSelected ? Colors.black : Colors.grey[600]),
+              )
+            : icon, // 支持传入自定义 Widget
       ),
     );
   }

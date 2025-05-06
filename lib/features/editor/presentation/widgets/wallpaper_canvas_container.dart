@@ -79,6 +79,9 @@ class _WallpaperCanvasContainerState
   Size? _lastLoggedSize;
   double _lastLoggedScale = 1.0;
 
+  // 添加跟踪上一次壁纸图像的变量
+  int? _lastWallpaperImageHash;
+
   @override
   void initState() {
     super.initState();
@@ -173,8 +176,15 @@ class _WallpaperCanvasContainerState
         ),
       );
     } else {
-      _logger
-          .d('WallpaperCanvasContainer: 壁纸图像非空，数据长度=${wallpaperImage.length}');
+      // 计算当前壁纸图像的哈希值
+      final currentWallpaperHash = wallpaperImage.hashCode;
+
+      // 仅当图像数据发生变化时才输出日志
+      if (_lastWallpaperImageHash != currentWallpaperHash) {
+        _lastWallpaperImageHash = currentWallpaperHash;
+        _logger.d(
+            'WallpaperCanvasContainer: 壁纸图像更新，数据长度=${wallpaperImage.length}, 哈希值=$currentWallpaperHash');
+      }
     }
 
     // 判断是否需要支持拖动
