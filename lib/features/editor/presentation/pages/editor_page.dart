@@ -16,7 +16,7 @@ import '../../application/services/new_button_menu_service.dart';
 import '../../application/services/screenshot_service.dart';
 import '../../application/services/window_manager_service.dart';
 import '../../application/services/zoom_menu_service.dart';
-import '../../application/states/canvas_transform_state.dart' as cts;
+import '../../application/states/canvas_transform_state.dart';
 import '../../../capture/data/models/capture_mode.dart';
 import '../../../capture/services/capture_service.dart';
 import '../../../../core/services/window_service.dart';
@@ -50,24 +50,10 @@ class EditorPage extends ConsumerStatefulWidget {
 }
 
 class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
-  /// Logger
   final Logger _logger = Logger();
-
-  /// 变换控制器 - 用于控制截图的变换
   final TransformationController _transformController =
       TransformationController();
-
-  /// 计时器 - 用于延迟执行调整窗口大小
-  Timer? _resizeDebounceTimer;
-
-  /// 可用编辑器尺寸
   Size? _availableEditorSize;
-
-  /// 保存的变换状态，用于窗口最小化后还原
-  cts.CanvasTransformState? _savedTransformState;
-
-  /// 是否需要在窗口还原后刷新
-  bool _needsRefreshAfterRestore = false;
 
   // 各种菜单和交互状态
   OverlayEntry? _tooltip;
@@ -86,18 +72,8 @@ class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
   @override
   void initState() {
     super.initState();
-    _logger.d('创建编辑器页面...');
-
-    if (widget.imageData != null) {
-      // 已有图像数据，开始加载
-      _loadImageData();
-    } else {
-      // 无图像数据，显示空编辑器
-      _logger.d('无图像数据，显示空编辑器');
-    }
-
-    // 注册窗口事件监听
-    windowManager.addListener(this);
+    // 使用WindowManagerService注册窗口监听器
+    WindowManagerService().registerWindowListener(this);
 
     // 初始化变换控制器
     _transformController.value = Matrix4.identity();
@@ -106,16 +82,19 @@ class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
     final capturedScale = widget.scale ?? 1.0;
     _logger.d('EditorPage received scale: $capturedScale');
 
+    // 加载图像数据（会在内部设置捕获比例）
+    _loadImageData();
+
     // 注册键盘事件处理
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
   }
 
   @override
   void dispose() {
-    _transformController.dispose();
-    _resizeDebounceTimer?.cancel();
-    windowManager.removeListener(this);
+    // 使用WindowManagerService注销窗口监听器
+    WindowManagerService().unregisterWindowListener(this);
     HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
+    _transformController.dispose();
 
     // 清理各种覆盖项
     _tooltip?.remove();
@@ -127,80 +106,50 @@ class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
     super.dispose();
   }
 
-  // WindowListener 接口实现
-  @override
-  void onWindowEvent(String eventName) {
-    switch (eventName) {
-      case 'minimize':
-        _handleWindowMinimize();
-        break;
-      case 'restore':
-      case 'focus':
-        _handleWindowRestore();
-        break;
-      default:
-        break;
-    }
-  }
-
-  /// 加载图像数据
+  /// 加载图像数据并调整窗口大小
   Future<void> _loadImageData() async {
-    if (!mounted) return;
-
     try {
-      _logger.d('加载图像数据...');
-      // 标记为加载中
-      ref.read(editorStateProvider.notifier).setLoading(true);
-
-      // 简化图像加载流程，使用loadScreenshot方法
-      if (widget.imageData != null && widget.logicalRect != null) {
-        // 使用logicalRect的大小
-        ref.read(editorStateProvider.notifier).loadScreenshot(
-              widget.imageData!,
-              widget.logicalRect!.size,
-            );
-
-        if (widget.scale != null) {
-          ref
-              .read(editorStateProvider.notifier)
-              .setCapturedScale(widget.scale!);
-        }
-      } else if (widget.imageData != null) {
-        // 先解码图像获取尺寸
-        final codec = await ui.instantiateImageCodec(widget.imageData!);
-        final frame = await codec.getNextFrame();
-        final uiImage = frame.image;
-        final imageSize = Size(
-          uiImage.width.toDouble(),
-          uiImage.height.toDouble(),
-        );
-
-        ref.read(editorStateProvider.notifier).loadScreenshot(
-              widget.imageData!,
-              imageSize,
-            );
-
-        if (widget.scale != null) {
-          ref
-              .read(editorStateProvider.notifier)
-              .setCapturedScale(widget.scale!);
-        }
+      final imageData = widget.imageData;
+      if (imageData == null) {
+        throw Exception('Image data is null');
       }
 
-      // 延迟调整窗口大小，以确保UI已完全构建
+      // 解码图像获取尺寸
+      final codec = await ui.instantiateImageCodec(imageData);
+      final frame = await codec.getNextFrame();
+      final uiImage = frame.image;
+      final imageSize = Size(
+        uiImage.width.toDouble(),
+        uiImage.height.toDouble(),
+      );
+      final capturedScale = widget.scale ?? 1.0;
+
+      // 确保在 post-frame 回调中更新状态，而不是在 initState 中直接修改
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        // 更新状态
+        ref.read(editorStateProvider.notifier).loadFullScreenshotData(
+            imageData, uiImage, imageSize, capturedScale);
+
+        _logger.d(
+          'Image loaded: Physical Size=${imageSize.width}x${imageSize.height}, Scale=$capturedScale, Logical Size=${widget.logicalRect?.width}x${widget.logicalRect?.height}',
+        );
+
         _adjustWindowSize();
       });
     } catch (e, stackTrace) {
-      _logger.e('加载图像数据失败', error: e, stackTrace: stackTrace);
+      _logger.e('Error loading image data', error: e, stackTrace: stackTrace);
       if (mounted) {
-        ref.read(editorStateProvider.notifier).setLoading(false);
+        // 确保状态更新在 post-frame 回调中
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ref.read(editorStateProvider.notifier).setLoading(false);
+        });
       }
     }
   }
 
-  /// 调整窗口大小
+  /// 基于图像尺寸和屏幕限制调整窗口大小
   void _adjustWindowSize() async {
     if (!mounted) return;
 
@@ -240,159 +189,20 @@ class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
   }) {
     if (!mounted) return;
 
-    // 约束缩放范围，确保在有效范围内
     final double clampedZoom = newZoom.clamp(
-        cts.CanvasTransformState.minZoom, cts.CanvasTransformState.maxZoom);
+        CanvasTransformState.minZoom, CanvasTransformState.maxZoom);
 
-    // 记录操作
     _logger.d(
-        'Setting zoom level: $clampedZoom, Focal Point: $focalPointOverride, fromInit: $fromInit');
+        'Setting zoom level: $clampedZoom, Focal Point: $focalPointOverride');
 
-    // 更新全局缩放状态
+    // Update the desired scale state
     ref.read(canvasScaleProvider.notifier).state = clampedZoom;
 
-    // 安全处理焦点
-    if (focalPointOverride != null) {
-      // 验证焦点是否有效
-      if (focalPointOverride.dx.isNaN ||
-          focalPointOverride.dy.isNaN ||
-          focalPointOverride.dx.isInfinite ||
-          focalPointOverride.dy.isInfinite) {
-        // 无效焦点，使用视图中心
-        final viewSize = MediaQuery.of(context).size;
-        focalPointOverride = Offset(viewSize.width / 2, viewSize.height / 2);
-        _logger.w('检测到无效的缩放焦点，使用视图中心点代替');
-      }
-
-      // 从当前状态获取数据
-      final currentOffset = ref.read(canvasTransformProvider).canvasOffset;
-      final currentZoom = ref.read(canvasTransformProvider).zoomLevel;
-
-      // 计算新的缩放比例和偏移量
-      final scaleRatio = clampedZoom / currentZoom;
-
-      // 如果缩放比例接近1，表示几乎没有变化，不做处理
-      if ((scaleRatio - 1.0).abs() < 0.001 && !fromInit) {
-        return;
-      }
-
-      // 计算焦点相对于当前偏移量的位置
-      final focalPointX = focalPointOverride.dx - currentOffset.dx;
-      final focalPointY = focalPointOverride.dy - currentOffset.dy;
-
-      // 计算新的偏移量
-      final newOffsetX = focalPointOverride.dx - focalPointX * scaleRatio;
-      final newOffsetY = focalPointOverride.dy - focalPointY * scaleRatio;
-
-      // 使用新方法
-      ref.read(canvasTransformProvider.notifier).setZoomAndOffset(
-            clampedZoom,
-            Offset(newOffsetX, newOffsetY),
-          );
-    } else {
-      // 仅更新缩放级别，保持当前偏移量
-      ref.read(canvasTransformProvider.notifier).setZoomLevel(clampedZoom);
-    }
-
-    // 同步更新变换控制器状态
-    _syncTransformControllerWithState();
-  }
-
-  /// 同步变换控制器与当前状态
-  void _syncTransformControllerWithState() {
-    if (!mounted) return;
-
-    try {
-      final transformState = ref.read(canvasTransformProvider);
-      final zoom = transformState.zoomLevel;
-      final offset = transformState.canvasOffset;
-
-      // 更新变换控制器
-      final matrix = Matrix4.identity()
-        ..translate(offset.dx, offset.dy)
-        ..scale(zoom, zoom);
-
-      setState(() {
-        _transformController.value = matrix;
-      });
-    } catch (e, stackTrace) {
-      _logger.e('同步变换控制器失败', error: e, stackTrace: stackTrace);
-    }
-  }
-
-  /// 处理窗口最小化
-  void _handleWindowMinimize() {
-    _logger.d('窗口已最小化');
-    // 保存当前状态，以便还原时使用
-    _saveCurrentWindowState();
-  }
-
-  /// 处理窗口还原
-  void _handleWindowRestore() {
-    _logger.d('窗口已还原或获得焦点');
-
-    // 检查并刷新界面内容
-    if (_needsRefreshAfterRestore) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-
-        // 刷新画布内容
-        _refreshCanvasContent();
-        _needsRefreshAfterRestore = false;
-      });
-    }
-  }
-
-  /// 存储当前窗口状态
-  void _saveCurrentWindowState() {
-    if (!mounted) return;
-
-    _savedTransformState = ref.read(canvasTransformProvider);
-  }
-
-  /// 刷新画布内容
-  void _refreshCanvasContent() {
-    if (!mounted) return;
-
-    try {
-      // 确保布局正确更新
-      setState(() {});
-
-      // 如果有保存的变换状态，还原
-      if (_savedTransformState != null) {
-        final zoom = _savedTransformState!.zoomLevel;
-        final offset = _savedTransformState!.canvasOffset;
-
-        ref
-            .read(canvasTransformProvider.notifier)
-            .setZoomAndOffset(zoom, offset);
-
-        _syncTransformControllerWithState();
-      }
-    } catch (e, stackTrace) {
-      _logger.e('刷新画布内容失败', error: e, stackTrace: stackTrace);
-    }
-  }
-
-  /// 处理鼠标滚轮事件
-  void _handleMouseScroll(PointerScrollEvent event) {
-    if (!mounted) return;
-
-    // 获取当前鼠标位置作为缩放焦点
-    final focalPoint = event.localPosition;
-
-    // 滚轮向上滚动时放大，向下滚动时缩小
-    final isZoomIn = event.scrollDelta.dy < 0;
-
-    // 获取当前缩放级别
-    final currentZoom = ref.read(canvasTransformProvider).zoomLevel;
-
-    // 计算新的缩放级别 - 使用较小的增量使缩放更平滑
-    final scaleFactor = isZoomIn ? 1.1 : 0.9;
-    final newZoom = currentZoom * scaleFactor;
-
-    // 设置新的缩放级别
-    _setZoomLevel(newZoom, focalPointOverride: focalPoint);
+    // Update the general transform state
+    ref.read(canvasTransformProvider.notifier).setZoomLevel(
+          clampedZoom,
+          focalPoint: focalPointOverride,
+        );
   }
 
   /// 处理键盘事件
@@ -478,6 +288,25 @@ class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
     );
   }
 
+  /// 处理鼠标滚轮事件
+  void _handleMouseScroll(PointerScrollEvent event) {
+    if (!mounted) return; // 确保组件仍然挂载
+
+    final deltaY = event.scrollDelta.dy;
+    final position = event.position;
+    final kind = event.kind;
+
+    if (kDebugMode) {
+      print('Mouse Wheel Event: delta=$deltaY, position=$position, kind=$kind');
+    }
+
+    // 传递事件给CanvasTransformConnector处理
+    ref.read(canvasTransformConnectorProvider).handleMouseWheelZoom(
+          event,
+          event.localPosition,
+        );
+  }
+
   /// 显示New按钮菜单 - 使用NewButtonMenuService
   void _showNewButtonMenu() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -532,21 +361,25 @@ class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
                 .read(editorStateProvider.notifier)
                 .setCurrentImageData(result.imageBytes);
 
-            // 如果有逻辑尺寸，更新原始尺寸
+            // 计算图像尺寸，更新原始尺寸
             if (result.logicalRect != null) {
               final size =
                   Size(result.logicalRect!.width, result.logicalRect!.height);
               ref
                   .read(editorStateProvider.notifier)
                   .updateOriginalImageSize(size);
-            }
-
-            // 如果有缩放因子，设置捕获比例
-            if (result.scale != null) {
+            } else if (result.region != null) {
+              // 如果有区域信息，使用区域尺寸
+              final size = Size(result.region!.width, result.region!.height);
               ref
                   .read(editorStateProvider.notifier)
-                  .setCapturedScale(result.scale!);
+                  .updateOriginalImageSize(size);
             }
+
+            // 更新捕获比例
+            ref
+                .read(editorStateProvider.notifier)
+                .setCapturedScale(result.scale);
           }
         }
       }
@@ -726,8 +559,8 @@ class _EditorPageState extends ConsumerState<EditorPage> with WindowListener {
         return EditorStatusBar(
           imageData: editorState.currentImageData,
           zoomLevel: canvasTransform.zoomLevel,
-          minZoom: cts.CanvasTransformState.minZoom,
-          maxZoom: cts.CanvasTransformState.maxZoom,
+          minZoom: CanvasTransformState.minZoom,
+          maxZoom: CanvasTransformState.maxZoom,
           onZoomChanged: (newZoom) =>
               ref.read(canvasTransformProvider.notifier).setZoomLevel(newZoom),
           onZoomMenuTap: () => _showZoomMenu(context),

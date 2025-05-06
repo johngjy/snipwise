@@ -1,10 +1,11 @@
 import Cocoa
 import FlutterMacOS
+import window_manager
 
 @main
 class AppDelegate: FlutterAppDelegate {
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    return false // Changed to false to keep app running when window is closed
+    return true
   }
 
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -33,5 +34,9 @@ class AppDelegate: FlutterAppDelegate {
     }
     
     super.applicationDidFinishLaunching(notification)
+    
+    // 让 window_manager 插件在此之后初始化
+    // 不需要手动注册方法通道，window_manager 插件会自动注册
+    // 窗口相关的操作应该使用 Flutter 侧的 window_manager 包来调用
   }
 }

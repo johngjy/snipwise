@@ -59,20 +59,14 @@ class CanvasTransformNotifier extends StateNotifier<cts.CanvasTransformState> {
   /// 上次缩放值
   double _lastScale = 1.0;
 
-  /// 上次更新时间戳，用于平滑处理
-  int _lastUpdateTimestamp = 0;
-
-  /// 防抖时间间隔(毫秒)
-  static const int _debounceInterval = 16; // 约60fps
+  /// 缩放开始位置
+  // Offset? _scaleStartFocalPoint; // Marked as unused, removing for now
 
   /// 视图尺寸
   Size? _viewSize;
 
   /// 内容尺寸
   Size? _contentSize;
-
-  /// 日志工具
-  final Logger _logger = Logger();
 
   /// 构造函数
   CanvasTransformNotifier(this.ref) : super(cts.CanvasTransformState.initial());
@@ -84,298 +78,174 @@ class CanvasTransformNotifier extends StateNotifier<cts.CanvasTransformState> {
       cts.CanvasTransformState.minZoom,
       cts.CanvasTransformState.maxZoom,
     );
-
     state = state.copyWith(
       zoomLevel: clampedScale,
       canvasOffset: Offset.zero, // Reset offset when setting initial scale
     );
-
     // 同步更新 PainterController 和全局状态
     _updatePainterControllerTransform();
     ref.read(canvasScaleProvider.notifier).state = clampedScale;
-
     if (kDebugMode) {
       print('🐛 Initial scale set to: $clampedScale');
     }
   }
 
-  /// 同时设置缩放级别和偏移量
-  /// 用于复杂的变换操作，如鼠标滚轮缩放
-  void setZoomAndOffset(double zoomLevel, Offset offset) {
-    // 当前时间戳
-    final now = DateTime.now().millisecondsSinceEpoch;
+  /// 设置缩放级别
+  void setZoomLevel(double zoomLevel, {Offset? focalPoint}) {
+    // 约束缩放级别在合理范围内
+    final constrainedZoom = zoomLevel.clamp(
+        cts.CanvasTransformState.minZoom, cts.CanvasTransformState.maxZoom);
 
-    // 如果更新太频繁，考虑跳过一些帧以提高性能
-    if (now - _lastUpdateTimestamp < _debounceInterval) {
+    if (kDebugMode) {
+      print(
+          '🐛 Setting zoom level: $constrainedZoom, Focal Point: $focalPoint');
+    }
+
+    // 计算新的缩放值相对于当前缩放值的比例
+    final currentZoom = state.zoomLevel;
+    final scaleRatio = constrainedZoom / currentZoom;
+
+    // 如果缩放比例接近1，表示几乎没有变化，直接返回
+    if ((scaleRatio - 1.0).abs() < 0.001) {
       return;
     }
 
-    _lastUpdateTimestamp = now;
+    // 获取当前偏移量
+    Offset currentOffset = state.canvasOffset;
 
-    final clampedZoom = zoomLevel.clamp(
-      cts.CanvasTransformState.minZoom,
-      cts.CanvasTransformState.maxZoom,
-    );
+    // 如果提供了焦点，计算新的偏移量以保持焦点位置
+    if (focalPoint != null) {
+      // 计算焦点相对于当前偏移量的位置
+      final focalPointX = focalPoint.dx - currentOffset.dx;
+      final focalPointY = focalPoint.dy - currentOffset.dy;
 
-    // 验证偏移量是否合理 - 在某些极端情况下可能会导致NaN或Infinity
-    if (offset.dx.isNaN ||
-        offset.dy.isNaN ||
-        offset.dx.isInfinite ||
-        offset.dy.isInfinite) {
-      _logger.e("检测到无效的偏移量: $offset, 使用当前偏移量代替");
-      offset = state.canvasOffset;
+      // 计算新的偏移量
+      final newOffsetX = focalPoint.dx - focalPointX * scaleRatio;
+      final newOffsetY = focalPoint.dy - focalPointY * scaleRatio;
+
+      currentOffset = Offset(newOffsetX, newOffsetY);
     }
 
+    // 更新状态
     state = state.copyWith(
-      zoomLevel: clampedZoom,
-      canvasOffset: offset,
+      zoomLevel: constrainedZoom,
+      canvasOffset: currentOffset,
     );
 
     // 同步更新PainterController
     _updatePainterControllerTransform();
 
     // 更新全局缩放比例状态
-    ref.read(canvasScaleProvider.notifier).state = clampedZoom;
+    ref.read(canvasScaleProvider.notifier).state = constrainedZoom;
   }
 
-  /// 设置缩放级别
-  /// 调整为不使用命名参数，以适应多个调用点
-  void setZoomLevel(double zoomLevel) {
-    // 限制缩放范围
-    final clampedZoom = zoomLevel.clamp(
-      cts.CanvasTransformState.minZoom,
-      cts.CanvasTransformState.maxZoom,
+  /// 开始缩放操作 (用于多点触控/手势)
+  void startScale(Offset focalPoint) {
+    // _scaleStartFocalPoint = focalPoint; // Not used currently
+    _lastScale = 1.0; // Reset last scale factor for relative scaling
+  }
+
+  /// 更新缩放操作 (用于多点触控/手势)
+  void updateScale(double scale, Offset focalPoint) {
+    // 计算相对于上一次更新的缩放增量
+    final scaleDelta = scale / _lastScale;
+    _lastScale = scale; // Update last scale factor for next update
+
+    // 计算基于增量的新缩放级别
+    final newZoomLevel = state.zoomLevel * scaleDelta;
+
+    // 设置新的缩放级别，使用手势焦点作为缩放中心点
+    setZoomLevel(newZoomLevel, focalPoint: focalPoint);
+  }
+
+  /// 更新平移操作 (用于拖拽)
+  void updateTranslation(Offset delta) {
+    final currentOffset = state.canvasOffset;
+    final newOffset = Offset(
+      currentOffset.dx + delta.dx,
+      currentOffset.dy + delta.dy,
     );
 
-    // 应用新状态
-    state = state.copyWith(zoomLevel: clampedZoom);
+    state = state.copyWith(canvasOffset: newOffset);
 
-    // 同步更新全局状态和控制器
-    _updatePainterControllerTransform();
-    ref.read(canvasScaleProvider.notifier).state = clampedZoom;
-  }
-
-  /// 更新画布偏移
-  void setOffset(Offset offset) {
-    // 验证偏移量
-    if (offset.dx.isNaN ||
-        offset.dy.isNaN ||
-        offset.dx.isInfinite ||
-        offset.dy.isInfinite) {
-      _logger.e("检测到无效的偏移量: $offset, 忽略此次更新");
-      return;
-    }
-
-    state = state.copyWith(canvasOffset: offset);
+    // 同步更新PainterController
     _updatePainterControllerTransform();
   }
 
-  /// 开始缩放操作
-  void startScale(Offset focalPoint) {
-    // 重置追踪数据
-    _lastScale = 1.0;
-    _lastUpdateTimestamp = DateTime.now().millisecondsSinceEpoch;
-
-    try {
-      state = state.copyWith(
-        isScaling: true,
-        scaleStartFocalPoint: focalPoint,
-        scaleStartZoomLevel: state.zoomLevel,
-      );
-    } catch (e) {
-      // 处理可能的错误，例如属性不存在
-      _logger.e("启动缩放时出错: $e");
-    }
-  }
-
-  /// 更新缩放
-  void updateScale(double scale, Offset focalPoint) {
-    try {
-      // 防止状态错误
-      if (!state.isScaling) {
-        startScale(focalPoint);
-        return;
-      }
-
-      // 当前时间戳
-      final now = DateTime.now().millisecondsSinceEpoch;
-
-      // 如果更新太频繁，考虑跳过一些帧以提高性能
-      if (now - _lastUpdateTimestamp < _debounceInterval) {
-        return;
-      }
-
-      _lastUpdateTimestamp = now;
-
-      // 计算平滑的缩放增量 - 避免突然的变化
-      double effectiveScale = scale;
-      if (_lastScale != 0) {
-        // 使用较小的增量来平滑缩放
-        final double deltaScale = scale / _lastScale;
-        effectiveScale = 1.0 + (deltaScale - 1.0) * 0.7; // 减少增量的70%
-      }
-      _lastScale = scale;
-
-      // 计算新的缩放级别，应用限制
-      final baseZoomLevel = state.scaleStartZoomLevel > 0
-          ? state.scaleStartZoomLevel
-          : state.zoomLevel;
-
-      final newZoomLevel = (baseZoomLevel * effectiveScale).clamp(
-        cts.CanvasTransformState.minZoom,
-        cts.CanvasTransformState.maxZoom,
-      );
-
-      // 如果焦点无效，使用中心点
-      if (focalPoint.dx.isNaN ||
-          focalPoint.dy.isNaN ||
-          focalPoint.dx.isInfinite ||
-          focalPoint.dy.isInfinite) {
-        focalPoint =
-            Offset(_viewSize?.width ?? 500 / 2, _viewSize?.height ?? 400 / 2);
-      }
-
-      // 计算偏移量
-      final currentOffset = state.canvasOffset;
-      final scaleRatio = newZoomLevel / state.zoomLevel;
-
-      final focalPointX = focalPoint.dx - currentOffset.dx;
-      final focalPointY = focalPoint.dy - currentOffset.dy;
-
-      final newOffsetX = focalPoint.dx - focalPointX * scaleRatio;
-      final newOffsetY = focalPoint.dy - focalPointY * scaleRatio;
-
-      // 应用缩放变化和新的偏移量
-      state = state.copyWith(
-          zoomLevel: newZoomLevel,
-          canvasOffset: Offset(newOffsetX, newOffsetY));
-
-      // 同步更新全局状态和控制器
-      _updatePainterControllerTransform();
-      ref.read(canvasScaleProvider.notifier).state = newZoomLevel;
-    } catch (e) {
-      // 处理更新过程中的错误
-      _logger.e("更新缩放时出错: $e");
-    }
-  }
-
-  /// 更新平移
-  void updateTranslation(Offset delta) {
-    try {
-      // 防止无效的输入
-      if (delta.dx.isNaN ||
-          delta.dy.isNaN ||
-          delta.dx.isInfinite ||
-          delta.dy.isInfinite) {
-        _logger.e("检测到无效的偏移增量: $delta, 忽略此次更新");
-        return;
-      }
-
-      // 限制单次平移的最大距离，避免突然的大幅移动
-      final maxDelta = 100.0;
-      final safeDelta = Offset(delta.dx.clamp(-maxDelta, maxDelta),
-          delta.dy.clamp(-maxDelta, maxDelta));
-
-      final newOffset = state.canvasOffset + safeDelta;
-      state = state.copyWith(canvasOffset: newOffset);
-      _updatePainterControllerTransform();
-    } catch (e) {
-      _logger.e("更新平移时出错: $e");
-    }
-  }
-
-  /// 结束缩放操作
+  /// 结束缩放操作 (用于多点触控/手势)
   void endScale() {
-    try {
-      state = state.copyWith(
-        isScaling: false,
-        scaleStartFocalPoint: null,
-      );
-
-      // 重置追踪值
-      _lastScale = 1.0;
-    } catch (e) {
-      _logger.e("结束缩放时出错: $e");
-    }
+    // _scaleStartFocalPoint = null; // Not used currently
+    _lastScale = 1.0; // Reset scale factor
   }
 
-  /// 设置视图尺寸
+  /// 设置视图尺寸 (用于内容居中计算)
   void setViewSize(Size size) {
-    if (size.width <= 0 || size.height <= 0) {
-      _logger.w("尝试设置无效的视图尺寸: $size, 已忽略");
-      return;
-    }
     _viewSize = size;
+    _adjustContentPosition();
   }
 
-  /// 设置内容尺寸
+  /// 设置内容尺寸 (用于内容居中计算)
   void setContentSize(Size size) {
-    if (size.width <= 0 || size.height <= 0) {
-      _logger.w("尝试设置无效的内容尺寸: $size, 已忽略");
-      return;
-    }
     _contentSize = size;
+    _adjustContentPosition();
   }
 
-  /// 自动适应内容到视图
-  void fitContentToView() {
-    if (_viewSize == null || _contentSize == null) {
-      _logger.w("适应内容到视图失败: 尺寸信息不完整");
-      return;
+  /// 根据视图和内容尺寸调整内容位置 (居中)
+  void _adjustContentPosition() {
+    if (_viewSize != null && _contentSize != null) {
+      _centerContent(_contentSize!, _viewSize!, state.zoomLevel);
     }
+  }
 
-    // 确保尺寸有效
-    if (_viewSize!.width <= 0 ||
-        _viewSize!.height <= 0 ||
-        _contentSize!.width <= 0 ||
-        _contentSize!.height <= 0) {
-      _logger.w("适应内容到视图失败: 无效的尺寸");
-      return;
-    }
+  /// 将内容居中显示
+  void _centerContent(Size contentSize, Size viewSize, double scale) {
+    // 计算缩放后的内容尺寸
+    final double scaledWidth = contentSize.width * scale;
+    final double scaledHeight = contentSize.height * scale;
 
-    try {
-      // 计算最佳缩放比例
-      final widthRatio = _viewSize!.width / _contentSize!.width;
-      final heightRatio = _viewSize!.height / _contentSize!.height;
-      final fitScale = (widthRatio < heightRatio ? widthRatio : heightRatio)
-          .clamp(cts.CanvasTransformState.minZoom,
-              cts.CanvasTransformState.maxZoom);
+    // 计算居中时的偏移量
+    final double offsetX = (viewSize.width - scaledWidth) / 2;
+    final double offsetY = (viewSize.height - scaledHeight) / 2;
 
-      // 计算居中偏移
-      final scaledWidth = _contentSize!.width * fitScale;
-      final scaledHeight = _contentSize!.height * fitScale;
-      final offsetX = (_viewSize!.width - scaledWidth) / 2;
-      final offsetY = (_viewSize!.height - scaledHeight) / 2;
+    // 更新状态
+    state = state.copyWith(
+      canvasOffset: Offset(offsetX, offsetY),
+    );
+    // Make sure to sync after centering
+    _updatePainterControllerTransform();
+  }
 
-      // 应用变换
-      state = state.copyWith(
-        zoomLevel: fitScale,
-        canvasOffset: Offset(offsetX, offsetY),
-      );
-
-      // 同步更新
-      _updatePainterControllerTransform();
-      ref.read(canvasScaleProvider.notifier).state = fitScale;
-
-      _logger.d("适应内容到视图: 缩放=$fitScale, 偏移=($offsetX, $offsetY)");
-    } catch (e) {
-      _logger.e("适应内容到视图时出错: $e");
-    }
+  /// 平移画布 (辅助方法, 可选)
+  void panCanvas(Offset delta) {
+    updateTranslation(delta);
   }
 
   /// 重置变换
   void resetTransform() {
-    try {
-      state = cts.CanvasTransformState.initial();
-      _updatePainterControllerTransform();
-      ref.read(canvasScaleProvider.notifier).state = 1.0;
-      _logger.d("重置变换: 缩放=1.0, 偏移=(0,0)");
-    } catch (e) {
-      _logger.e("重置变换时出错: $e");
-    }
+    state = cts.CanvasTransformState.initial();
+
+    // 同步更新全局缩放比例状态
+    ref.read(canvasScaleProvider.notifier).state = state.zoomLevel;
+    // Sync painter controller
+    _updatePainterControllerTransform();
   }
 
-  /// 更新PainterController的变换
+  /// 鼠标滚轮缩放处理
+  void handleMouseWheelZoom(PointerScrollEvent event, Offset localPosition) {
+    // 计算缩放增量 - 向上滚动放大，向下滚动缩小
+    final delta = event.scrollDelta.dy;
+    // Use smaller factor for smoother zoom
+    final scaleFactor = delta > 0 ? 0.98 : 1.02;
+
+    // 计算新的缩放级别
+    final newZoomLevel = state.zoomLevel * scaleFactor;
+
+    // 设置新的缩放级别，使用鼠标位置作为焦点
+    setZoomLevel(newZoomLevel, focalPoint: localPosition);
+  }
+
+  /// 同步更新PainterController的变换
+  /// 将当前的缩放和平移应用到PainterController
   void _updatePainterControllerTransform() {
     // Add safety check: Although StateNotifier doesn't have `mounted`,
     // we rely on Riverpod to handle disposal. Accessing `ref` might still be unsafe
@@ -400,7 +270,9 @@ class CanvasTransformNotifier extends StateNotifier<cts.CanvasTransformState> {
       }
     } catch (e) {
       // Catch potential errors if providers are disposed, etc.
-      _logger.e('更新PainterController变换失败: $e');
+      if (kDebugMode) {
+        print('更新PainterController变换失败: $e');
+      }
     }
   }
 }

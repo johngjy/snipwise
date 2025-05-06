@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../application/providers/editor_providers.dart';
+import '../../../../application/providers/core_providers.dart';
 import '../../../../application/states/wallpaper_settings_state.dart';
 
 /// 模糊背景网格组件 - 显示并选择模糊背景预设

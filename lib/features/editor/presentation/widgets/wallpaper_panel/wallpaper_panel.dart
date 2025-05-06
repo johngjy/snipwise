@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
-import '../../../application/providers/editor_providers.dart';
+import '../../../application/providers/core_providers.dart';
 import '../../../application/states/wallpaper_settings_state.dart';
 import 'components/setting_slider.dart';
+import 'components/color_grid.dart';
+import 'components/gradient_grid.dart';
+import 'components/blurred_grid.dart';
 
 /// Wallpaper设置面板 - 紧凑型高效布局设计
 class WallpaperPanel extends ConsumerWidget {
@@ -217,56 +220,9 @@ class WallpaperPanel extends ConsumerWidget {
     );
   }
 
-  /// 构建渐变网格 - 减小尺寸和间距
+  /// 构建渐变背景网格
   Widget _buildGradientsGrid(WidgetRef ref, WallpaperSettingsState settings) {
-    final selectedIndex = settings.selectedGradientIndex;
-
-    return Wrap(
-      spacing: 4,
-      runSpacing: 4,
-      children: List.generate(
-        15, // 减少显示的渐变数量
-        (index) {
-          final isSelected = selectedIndex == index;
-
-          // 创建渐变 - 使用预设或随机生成
-          final gradient = index < gradientPresets.length
-              ? gradientPresets[index].gradient
-              : LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color.fromARGB(
-                        255, 100 + index * 7, 50 + index * 3, 150 - index * 5),
-                    Color.fromARGB(
-                        255, 150 - index * 3, 100 + index * 5, 200 - index * 2),
-                  ],
-                );
-
-          return GestureDetector(
-            onTap: () {
-              if (index < gradientPresets.length) {
-                ref.read(wallpaperSettingsProvider.notifier)
-                  ..setWallpaperType(WallpaperType.gradient)
-                  ..selectGradientPreset(index);
-              }
-            },
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                gradient: gradient,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: isSelected ? Colors.blue : Colors.transparent,
-                  width: 2,
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
+    return const GradientGrid();
   }
 
   /// 构建壁纸网格 - 减小尺寸
@@ -322,194 +278,14 @@ class WallpaperPanel extends ConsumerWidget {
     );
   }
 
-  /// 构建模糊效果网格 - 减小尺寸和间距
+  /// 构建模糊背景网格
   Widget _buildBlurredGrid(WidgetRef ref, WallpaperSettingsState settings) {
-    final selectedIndex = settings.selectedBlurIndex;
-
-    return Row(
-      children: [
-        // 模糊森林
-        GestureDetector(
-          onTap: () {
-            ref.read(wallpaperSettingsProvider.notifier)
-              ..setWallpaperType(WallpaperType.blurred)
-              ..selectBlurredPreset(0);
-          },
-          child: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: selectedIndex == 0 ? Colors.blue : Colors.transparent,
-                width: 2,
-              ),
-              color: Colors.brown.shade300, // 使用颜色替代无法加载的图片
-            ),
-            child: Icon(PhosphorIcons.treeStructure(PhosphorIconsStyle.light),
-                size: 18, color: Colors.white70),
-          ),
-        ),
-        const SizedBox(width: 8),
-
-        // 白色模糊
-        GestureDetector(
-          onTap: () {
-            ref.read(wallpaperSettingsProvider.notifier)
-              ..setWallpaperType(WallpaperType.blurred)
-              ..selectBlurredPreset(1);
-          },
-          child: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: selectedIndex == 1 ? Colors.blue : Colors.grey.shade300,
-                width: 2,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-
-        // 灰色模糊
-        GestureDetector(
-          onTap: () {
-            ref.read(wallpaperSettingsProvider.notifier)
-              ..setWallpaperType(WallpaperType.blurred)
-              ..selectBlurredPreset(2);
-          },
-          child: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade400,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: selectedIndex == 2 ? Colors.blue : Colors.transparent,
-                width: 2,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
+    return const BlurredGrid();
   }
 
-  /// 构建颜色网格 - 减小尺寸和间距
+  /// 构建颜色网格
   Widget _buildColorGrid(WidgetRef ref, WallpaperSettingsState settings) {
-    final currentColor = settings.backgroundColor;
-
-    // 常用颜色列表 - 第一行
-    final List<Color> colors1 = [
-      Colors.black,
-      Colors.white,
-      const Color(0xFFE57373), // 红色
-      const Color(0xFFFF9800), // 橙色
-      const Color(0xFFFFEB3B), // 黄色
-      const Color(0xFF4CAF50), // 绿色
-      const Color(0xFF2196F3), // 蓝色
-      const Color(0xFF9C27B0), // 紫色
-    ];
-
-    // 常用颜色列表 - 第二行
-    final List<Color> colors2 = [
-      const Color(0xFF616161), // 深灰色
-      const Color(0xFFEEEEEE), // 浅灰色
-      const Color(0xFFF8BBD0), // 浅粉色
-      const Color(0xFFFFCC80), // 浅橙色
-      const Color(0xFFFFF9C4), // 浅黄色
-      const Color(0xFFC8E6C9), // 浅绿色
-      const Color(0xFFBBDEFB), // 浅蓝色
-      Colors.transparent, // 自定义颜色
-    ];
-
-    return Column(
-      children: [
-        // 第一行颜色
-        Row(
-          children: colors1.map((color) {
-            final bool isSelected = color.value == currentColor.value;
-
-            return Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: GestureDetector(
-                onTap: () {
-                  ref.read(wallpaperSettingsProvider.notifier)
-                    ..setWallpaperType(WallpaperType.plainColor)
-                    ..selectPlainColor(color);
-                },
-                child: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: isSelected
-                          ? Colors.blue
-                          : (color == Colors.white
-                              ? Colors.grey.shade300
-                              : Colors.transparent),
-                      width: isSelected ? 2 : 1,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-        const SizedBox(height: 4),
-
-        // 第二行颜色
-        Row(
-          children: colors2.map((color) {
-            final bool isColorPicker = color == Colors.transparent;
-            final bool isSelected =
-                !isColorPicker && color.value == currentColor.value;
-
-            return Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: GestureDetector(
-                onTap: () {
-                  if (!isColorPicker) {
-                    ref.read(wallpaperSettingsProvider.notifier)
-                      ..setWallpaperType(WallpaperType.plainColor)
-                      ..selectPlainColor(color);
-                  } else {
-                    // 颜色选择器逻辑
-                  }
-                },
-                child: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: isColorPicker ? Colors.white : color,
-                    borderRadius: BorderRadius.circular(isColorPicker ? 4 : 10),
-                    border: Border.all(
-                      color: isSelected
-                          ? Colors.blue
-                          : (isColorPicker ||
-                                  color == Colors.white ||
-                                  color == const Color(0xFFEEEEEE)
-                              ? Colors.grey.shade300
-                              : Colors.transparent),
-                      width: isSelected ? 2 : 1,
-                    ),
-                  ),
-                  child: isColorPicker
-                      ? Icon(Icons.palette,
-                          size: 14, color: Colors.grey.shade400)
-                      : null,
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
+    return const ColorGrid();
   }
 
   /// 构建所有设置区域 - 紧凑布局

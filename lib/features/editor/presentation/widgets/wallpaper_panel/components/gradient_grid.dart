@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../application/providers/editor_providers.dart';
+import '../../../../application/providers/core_providers.dart';
 import '../../../../application/states/wallpaper_settings_state.dart';
 
 /// 渐变预设网格 - 紧凑版本

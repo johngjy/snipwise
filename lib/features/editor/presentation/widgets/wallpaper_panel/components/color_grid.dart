@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../application/providers/editor_providers.dart';
+import '../../../../application/providers/core_providers.dart';
 
 /// 颜色选择网格 - 紧凑版本
 class ColorGrid extends ConsumerWidget {

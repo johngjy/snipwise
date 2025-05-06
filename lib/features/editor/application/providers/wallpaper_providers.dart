@@ -126,34 +126,16 @@ final wallpaperColorProvider = Provider<Color>((ref) {
   return settings.backgroundColor;
 });
 
-/// 用于在provider间共享状态的全局变量
-final Map<String, dynamic> _imageProviderStateHolder = {
-  'lastImageDataHash': null,
-};
-
 /// 壁纸图像提供者
 final wallpaperImageProvider = Provider<Uint8List?>((ref) {
   final logger = Logger();
   final editorState = ref.watch(ep.editorStateProvider);
 
   if (editorState.currentImageData != null) {
-    // 获取当前图像数据的哈希值
-    final currentHash = editorState.currentImageData.hashCode;
-
-    // 仅当图像数据发生变化时才输出日志
-    if (_imageProviderStateHolder['lastImageDataHash'] != currentHash) {
-      _imageProviderStateHolder['lastImageDataHash'] = currentHash;
-      logger.d(
-          '壁纸图像提供者: 图像数据已更新，长度=${editorState.currentImageData.length}, 哈希值=$currentHash');
-    }
-
+    logger.d('壁纸图像提供者: 返回非空图像，数据长度=${editorState.currentImageData.length}');
     return editorState.currentImageData;
   } else {
-    // 重置哈希跟踪，因为现在没有图像
-    if (_imageProviderStateHolder['lastImageDataHash'] != null) {
-      _imageProviderStateHolder['lastImageDataHash'] = null;
-      logger.w('壁纸图像提供者: 图像数据为空');
-    }
+    logger.w('壁纸图像提供者: 图像数据为空');
     return null;
   }
 });

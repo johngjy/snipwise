@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/editor/presentation/pages/editor_page.dart';
 import '../../features/capture/presentation/pages/capture_page.dart';
-import '../../features/new_editor/routes.dart';
+import '../../features/editor/routes.dart';
 
 /// 应用路由配置
 class AppRoutes {
@@ -21,26 +21,8 @@ class AppRoutes {
         builder: (context, state) => const CapturePage(),
       ),
 
-      // 编辑器页面
-      GoRoute(
-        path: editor,
-        builder: (context, state) {
-          // 获取路由参数
-          final Map<String, dynamic> params =
-              state.extra as Map<String, dynamic>? ?? {};
-          final imageData = params['imageData'];
-          final scale = params['scale'];
-          final logicalRect = params['logicalRect'];
-          return EditorPage(
-            imageData: imageData,
-            scale: scale,
-            logicalRect: logicalRect,
-          );
-        },
-      ),
-
-      // 新版编辑器路由
-      ...NewEditorRoutes.getRoutes(),
+      // 编辑器路由
+      ...EditorRoutes.getRoutes(),
     ],
   );
 }

@@ -16,15 +16,15 @@ import 'package:screen_capturer/screen_capturer.dart' hide CaptureMode;
 import 'package:screen_retriever/screen_retriever.dart';
 
 import '../../../../core/routes/app_routes.dart';
-import '../../../../features/new_editor/routes.dart';
-import '../../../common/infrastructure/services/window_service.dart';
-import '../../../common/presentation/widgets/standard_app_bar.dart';
+import '../../../../features/editor/routes.dart';
+import '../../../../core/services/window_service.dart';
+import '../../../../core/widgets/standard_app_bar.dart';
 import '../../../editor/application/providers/editor_providers.dart';
-import '../../../screenshot/application/providers/capture_mode_provider.dart';
-import '../../../screenshot/domain/entities/capture_mode.dart';
-import '../../../screenshot/domain/entities/capture_result.dart';
-import '../../../screenshot/infrastructure/services/capture_service.dart';
-import '../../../screenshot/infrastructure/services/long_screenshot_service.dart';
+import '../../../capture/data/models/capture_mode.dart';
+import '../../../capture/data/models/capture_result.dart';
+import '../../../capture/services/capture_service.dart';
+import '../../../capture/services/long_screenshot_service.dart';
+import '../../../capture/application/providers/capture_mode_provider.dart';
 import '../widgets/delay_menu.dart';
 import '../widgets/video_menu.dart';
 
@@ -153,7 +153,7 @@ class _CapturePageState extends ConsumerState<CapturePage>
       // 新版编辑器
       MenuItemConfig(
         icon: PhosphorIcons.sparkle(PhosphorIconsStyle.light),
-        label: '新版编辑器',
+        label: '高级编辑器',
         onTap: _openNewEditor,
       ),
 
@@ -600,36 +600,23 @@ class _CapturePageState extends ConsumerState<CapturePage>
       if (!mounted) return; // 检查组件是否仍然挂载
 
       if (result != null && result.hasData) {
-        _logger.i(
-            'Capture successful for mode: $mode, navigating to new editor...');
-        _logger.i('ImageData bytes length: ${result.imageBytes?.length}');
-        _logger.i('ImageSize: ${result.logicalRect?.size}');
-        _logger.i('Scale: ${result.scale}');
-
-        // 额外添加null检查和数据验证
-        if (result.imageBytes == null || result.imageBytes!.isEmpty) {
-          _logger.e('截图数据为空，无法打开编辑器');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('截图数据为空，无法打开编辑器')),
-          );
-          setState(() {
-            _isLoadingCapture = false;
-          });
-          return;
-        }
-
-        // 使用NewEditorRoutes统一导航到新版编辑器
-        NewEditorRoutes.navigateToEditor(
-          context,
-          imageData: result.imageBytes!,
-          imageSize: result.logicalRect?.size,
-          scale: result.scale,
+        _logger
+            .i('Capture successful for mode: $mode, navigating to editor...');
+        // 导航到编辑器页面 - 使用GoRouter
+        context.push(
+          '/editor',
+          extra: {
+            'imageData': result.imageBytes,
+            'scale': result.scale,
+            'logicalRect': result.logicalRect,
+          },
         );
       } else {
         _logger.w('Capture for mode $mode did not return valid data.');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('截图未返回有效数据')),
-        );
+        // 如果需要，可以在这里显示取消或失败的消息
+        // ScaffoldMessenger.of(context).showSnackBar(
+        //   const SnackBar(content: Text('截图已取消或失败')),
+        // );
       }
     } catch (e, stackTrace) {
       _logger.e('Error during _triggerCapture for mode $mode',
@@ -747,10 +734,13 @@ class _CapturePageState extends ConsumerState<CapturePage>
         // Final mount check before navigation
         if (!mounted) return;
 
-        // 使用NewEditorRoutes统一导航到新版编辑器
-        NewEditorRoutes.navigateToEditor(
+        // 导航到编辑器页面
+        await Navigator.pushNamed(
           context,
-          imageData: imageBytes,
+          '/editor',
+          arguments: {
+            'imageBytes': imageBytes,
+          },
         );
       } else {
         _logger.w('长截图操作未完成或被取消');
@@ -802,14 +792,16 @@ class _CapturePageState extends ConsumerState<CapturePage>
       if (!mounted) return;
 
       if (result != null && result.hasData) {
-        _logger.i('获取截图成功，导航至新版编辑器...');
+        _logger.i('获取截图成功，导航至编辑器...');
 
-        // 使用命名路由进行导航，确保路由配置正确
-        NewEditorRoutes.navigateToEditor(
-          context,
-          imageData: result.imageBytes!,
-          imageSize: result.logicalRect?.size,
-          scale: result.scale,
+        // 使用GoRouter导航到编辑器
+        context.push(
+          '/editor',
+          extra: {
+            'imageData': result.imageBytes,
+            'imageSize': result.logicalRect?.size,
+            'scale': result.scale,
+          },
         );
       } else {
         _logger.w('获取截图失败或被取消');
@@ -818,10 +810,10 @@ class _CapturePageState extends ConsumerState<CapturePage>
         );
       }
     } catch (e, stackTrace) {
-      _logger.e('打开新版编辑器过程中发生错误', error: e, stackTrace: stackTrace);
+      _logger.e('打开编辑器过程中发生错误', error: e, stackTrace: stackTrace);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('打开新版编辑器失败: $e')),
+          SnackBar(content: Text('打开编辑器失败: $e')),
         );
       }
     } finally {
